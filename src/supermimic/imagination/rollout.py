@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import torch
 
+from supermimic.anchor_obs import ANCHOR_OBS_SLICES, anchor_obs_mode
 from supermimic.data.replay_buffer import StartBatch
 from supermimic.envs.mdp.motion_library import MotionLibrary
 from supermimic.imagination.compiled import REWARD_TERM_NAMES, ImagStep
@@ -41,14 +42,16 @@ def imagine(
     future_frames: int = 10,
     obs_noise: bool = True,
     step_fn: ImagStep | None = None,
-    anchor_obs: bool = False,
+    anchor_obs: bool | str = False,
 ) -> ImagRollout:
     device = start.state.device
     n = start.state.shape[0]
     q0 = lib.default_joint_pos
     step_fn = step_fn or ImagStep(wm, q0)
     noise_half = OBS_NOISE_HALF.to(device)
-    anchor_noise_half = ANCHOR_NOISE_HALF.to(device)
+    mode = anchor_obs_mode(anchor_obs)
+    anchor_slice = ANCHOR_OBS_SLICES[mode]
+    anchor_noise_half = ANCHOR_NOISE_HALF.to(device)[anchor_slice]
     ai = wm.heads.anchor_index
 
     def add_noise(o):
@@ -58,9 +61,9 @@ def imagine(
 
     def make_goal(frame_t, ref_t, anchor_pose):
         g = lib.goal_window(frame_t, future_frames)
-        if not anchor_obs:
+        if mode == "none":
             return g
-        rel = anchor_relative_obs(anchor_pose[..., 0:3], anchor_pose[..., 3:7], ref_t.body_pos_w[..., ai, :], ref_t.body_quat_w[..., ai, :])
+        rel = anchor_relative_obs(anchor_pose[..., 0:3], anchor_pose[..., 3:7], ref_t.body_pos_w[..., ai, :], ref_t.body_quat_w[..., ai, :])[..., anchor_slice]
         if obs_noise:
             rel = rel + (torch.rand_like(rel) * 2 - 1) * anchor_noise_half
         return torch.cat([g, rel], dim=-1)
@@ -86,7 +89,7 @@ def imagine(
         return ReferenceFrame(ref_all.body_pos_w[sl], ref_all.body_quat_w[sl], ref_all.body_lin_vel_w[sl], ref_all.body_ang_vel_w[sl], ref_all.root_pos_w[sl], ref_all.root_quat_w[sl])
 
     ref = ref_at(0)
-    if anchor_obs:
+    if mode != "none":
         b0 = wm.heads.robot_bodies(s)
         anchor_pose = torch.cat([b0["pos"][..., ai, :], b0["quat"][..., ai, :]], dim=-1)
     else:

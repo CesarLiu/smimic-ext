@@ -81,7 +81,8 @@ env -u PYTHONPATH uv run sm-train --run-name lafan1 --data.npz-dir data/npz/lafa
 env -u PYTHONPATH uv run torchrun --nproc_per_node 4 -m supermimic.scripts.train --run-name boneseed \
   --data.library data/library/bones_seed_compact.pt --env.num-envs 4096 --policy-trainer.batch-size 2048
 
-# Options: --env.anchor-obs (BeyondMimic anchor-relative observation, deviates from the paper), --resume <ckpt>
+# Options: --env.anchor-obs {none,ori,pos_ori} (anchor-relative goal term, deviates from the paper: "ori" = rot6d,
+#          IMU-observable; "pos_ori" = BeyondMimic pos + rot6d, needs state estimation), --resume <ckpt>
 ```
 
 Defaults follow Table A.5/A.6: 4096 environments, H=32, UTD 0.4, γ=0.99, critic 5 epochs × 4 minibatches, 10 world-model batches per update, cosine decay to 0.03× over 250k iterations. Logs go to TensorBoard under `logs/<run>/tb`; checkpoints every `--schedule.checkpoint-interval` iterations.
@@ -134,6 +135,7 @@ The design documents are in Chinese; a full Chinese version of this README follo
 | [docs/REPRODUCTION_PLAN.md](docs/REPRODUCTION_PLAN.md) | Plan: goals, environment, design decisions D1–D20, repo skeleton, phased steps, tests, budget, risks |
 | [docs/REVIEW_LOG.md](docs/REVIEW_LOG.md) | Self-review and two adversarial reviews of the plan |
 | [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) | Experiment log: configuration, curves, evaluation, decisions that deviated from the plan, pitfalls |
+| [docs/GENERALIZATION.md](docs/GENERALIZATION.md) | Held-out generalisation experiment (g-series): splits, commands, how to read the results |
 
 ## Engineering notes
 
@@ -213,6 +215,7 @@ The design documents are in Chinese; a full Chinese version of this README follo
 | [docs/REPRODUCTION_PLAN.md](docs/REPRODUCTION_PLAN.md) | 复现计划：目标、环境、设计决策 D1–D20、repo 骨架、分阶段步骤、测试、预算、风险 |
 | [docs/REVIEW_LOG.md](docs/REVIEW_LOG.md) | 计划的自审与两轮对抗审查记录 |
 | [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) | 实验日志：每个实验的配置、曲线、评测、偏离计划的决定、踩坑记录 |
+| [docs/GENERALIZATION.md](docs/GENERALIZATION.md) | held-out 泛化实验（g 系列）：划分、命令、结果怎么读 |
 
 ## 工程备注
 

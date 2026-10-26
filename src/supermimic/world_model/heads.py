@@ -51,7 +51,7 @@ def anchor_relative_obs(robot_anchor_pos: torch.Tensor, robot_anchor_quat: torch
     return torch.cat([pos, mat[..., :2].reshape(*q12.shape[:-1], 6)], dim=-1)
 
 
-ANCHOR_OBS_DIM = 9
+ANCHOR_OBS_DIM = 9  # full [pos, rot6d]; the "ori" mode keeps the last 6 (supermimic/anchor_obs.py)
 
 
 def flatten_history_term_major(hist: torch.Tensor) -> torch.Tensor:

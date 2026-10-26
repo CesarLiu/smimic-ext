@@ -21,13 +21,15 @@ def main(ckpt: Path, npz_dir: Path = Path("data/npz/lafan1"), clips: list[str] |
     results = run_benchmark(policy, files, device=device, num_envs=num_envs, future_frames=cfg["env"]["future_frames"], anchor_obs=cfg["env"].get("anchor_obs", False))
     s = summarize(results)
     print(f"\n{s['clips']} clips | failed {s['failed']} | mean norm return {s['mean_norm_return']:.4f} | step-weighted {s['step_weighted_norm_return']:.4f}")
+    if "mean_mpjpe_aligned_m" in s:
+        print(f"anchor-aligned body error (xy/yaw drift removed): mean {100 * s['mean_mpjpe_aligned_m']:.2f} cm | step-weighted {100 * s['step_weighted_mpjpe_aligned_m']:.2f} cm")
     if "terms" in s:
         print("per-step term means (max 0.02 each for the 1.0-weight terms, 0.01 for root terms):")
         for k, v in s["terms"].items():
             print(f"  {k:28s} {v:.4f}")
     worst = sorted(results, key=lambda r: r.norm_return)[:10]
     for r in worst:
-        print(f"  {r.name:32s} ret {r.norm_return:.3f} steps {r.steps}/{r.frames} {'FAIL@' + str(r.fail_step) if r.failed else ''}")
+        print(f"  {r.name:32s} ret {r.norm_return:.3f} mpjpe {100 * r.mpjpe_aligned:5.1f} cm steps {r.steps}/{r.frames} {'FAIL@' + str(r.fail_step) if r.failed else ''}")
     out = out or ckpt.parent / f"benchmark_{ckpt.stem}.json"
     save_results(results, out)
     print("saved", out)

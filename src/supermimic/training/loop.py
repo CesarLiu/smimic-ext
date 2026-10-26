@@ -10,6 +10,7 @@ from pathlib import Path
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
+from supermimic.anchor_obs import anchor_obs_dim
 from supermimic.config import TrainConfig
 from supermimic.data.motion_convert import load_g1_model
 from supermimic.envs import SuperMimicEnvCfgArgs, make_env
@@ -28,7 +29,7 @@ from supermimic.world_model.world_model import WorldModel
 class Trainer:
     def __init__(self, cfg: TrainConfig):
         self.cfg = cfg
-        cfg.policy.goal_dim = cfg.env.future_frames * 68 + (9 if cfg.env.anchor_obs else 0)
+        cfg.policy.goal_dim = cfg.env.future_frames * 68 + anchor_obs_dim(cfg.env.anchor_obs)
         cfg.policy_trainer.anchor_obs = cfg.env.anchor_obs
         self.rank, local_rank, self.world = init_distributed()
         self.is_main = self.rank == 0

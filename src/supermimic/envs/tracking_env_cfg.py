@@ -2,7 +2,8 @@
 
 Differences from mjlab's BeyondMimic re-implementation (``mjlab.tasks.tracking``):
   * observations: paper Table A.1 proprioception only (no anchor pose, no base lin vel),
-    10-frame history (term-major), plus a separate ``goal`` group with K future frames;
+    10-frame history (term-major), plus a separate ``goal`` group with K future frames and an
+    optional anchor-relative term (``anchor_obs``: none / ori / pos_ori);
   * action: ``NoisyJointPositionAction`` (clean action observed, noise only executed);
   * multi-clip command with return-based reset sampling and clip-end time-outs;
   * rewards: self-collision term removed, joint-limit weight -2;
@@ -31,6 +32,7 @@ from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
+from supermimic.anchor_obs import anchor_obs_mode
 from supermimic.data.recorder import ReplayRecorderCfg
 from supermimic.envs.actions import NoisyJointPositionActionCfg
 from supermimic.envs.mdp import observations as sm_obs
@@ -87,7 +89,7 @@ class SuperMimicEnvCfgArgs:
     joint_limit_weight: float = -2.0
     bin_frames: int = 50
     compact_library: bool = False
-    anchor_obs: bool = False  # add BeyondMimic anchor-relative pose (9) to the goal group (plan D5 alt.)
+    anchor_obs: bool | str = False  # "none" | "ori" (6) | "pos_ori" (9) anchor-relative goal term; legacy bools accepted (supermimic/anchor_obs.py)
     debug_vis: bool = False  # draw the reference ghost in the viewer (scripts/play.py)
     extra_command_kwargs: dict = field(default_factory=dict)
 
@@ -95,6 +97,12 @@ class SuperMimicEnvCfgArgs:
 def make_env_cfg(a: SuperMimicEnvCfgArgs) -> ManagerBasedRlEnvCfg:
     # ---------------------------------------------------------------- observations
     noise = (lambda lo, hi: Unoise(n_min=lo, n_max=hi)) if a.obs_noise else (lambda lo, hi: None)
+    anchor_mode = anchor_obs_mode(a.anchor_obs)
+    anchor_terms = {}
+    if anchor_mode == "pos_ori":
+        anchor_terms["anchor_pos"] = ObservationTermCfg(func=track_mdp.motion_anchor_pos_b, params={"command_name": "motion"}, noise=noise(-0.25, 0.25))
+    if anchor_mode in ("ori", "pos_ori"):
+        anchor_terms["anchor_ori"] = ObservationTermCfg(func=track_mdp.motion_anchor_ori_b, params={"command_name": "motion"}, noise=noise(-0.05, 0.05))
     policy_terms = {
         "joint_pos": ObservationTermCfg(func=base_mdp.joint_pos_rel, params={"biased": True}, noise=noise(-0.01, 0.01)),
         "joint_vel": ObservationTermCfg(func=base_mdp.joint_vel_rel, noise=noise(-0.5, 0.5)),
@@ -113,14 +121,7 @@ def make_env_cfg(a: SuperMimicEnvCfgArgs) -> ManagerBasedRlEnvCfg:
         "goal": ObservationGroupCfg(
             terms={
                 "future_frames": ObservationTermCfg(func=sm_obs.goal_future_frames, params={"command_name": "motion"}),
-                **(
-                    {
-                        "anchor_pos": ObservationTermCfg(func=track_mdp.motion_anchor_pos_b, params={"command_name": "motion"}, noise=noise(-0.25, 0.25)),
-                        "anchor_ori": ObservationTermCfg(func=track_mdp.motion_anchor_ori_b, params={"command_name": "motion"}, noise=noise(-0.05, 0.05)),
-                    }
-                    if a.anchor_obs
-                    else {}
-                ),
+                **anchor_terms,
             },
             concatenate_terms=True,
             enable_corruption=a.obs_noise,

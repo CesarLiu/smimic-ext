@@ -33,8 +33,8 @@ class PolicyTrainerCfg:
     critic_minibatches: int = 4
     use_critic: bool = True
     obs_noise: bool = True
-    compile: str | None = "default"
-    anchor_obs: bool = False  # None | "default" | "reduce-overhead" | "max-autotune-no-cudagraphs"
+    compile: str | None = "default"  # None | "default" | "reduce-overhead" | "max-autotune-no-cudagraphs"
+    anchor_obs: bool | str = "none"  # set from EnvCfg.anchor_obs by the training loop
 
 
 class PolicyTrainer:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from supermimic.imagination.policy_trainer import PolicyTrainerCfg
 from supermimic.policy.nets import CriticCfg, PolicyCfg
@@ -32,7 +33,9 @@ class EnvCfg:
     replay_capacity: int = 1000
     future_frames: int = 10
     compact_library: bool = False
-    anchor_obs: bool = False
+    # Anchor-relative goal term (supermimic/anchor_obs.py): "none" = paper Table A.1, "ori" = IMU-observable
+    # rot6d (6), "pos_ori" = BeyondMimic pos + rot6d (9, needs state estimation; e3/e5).
+    anchor_obs: Literal["none", "ori", "pos_ori"] = "none"
 
 
 @dataclass
