@@ -38,7 +38,8 @@ uv run python scripts/data/make_split.py --manifest data/npz/bones_seed/manifest
 uv run python scripts/data/build_library.py --npz-dir data/npz/bones_seed \
   --manifest data/splits/g1/train_manifest.csv --out data/library/g1_train.pt
 env -u PYTHONPATH uv run sm-train --run-name g1 --data.library data/library/g1_train.pt \
-  --env.anchor-obs ori --env.num-envs 4096 --policy-trainer.batch-size 2048 --schedule.max-hours 4
+  --env.anchor-obs ori --env.num-envs 4096 --policy-trainer.batch-size 4096 --schedule.max-hours 4
+# batch 4096 = paper default (fits an 80 GB+ card); e5/e8 used 2048 only because of the 5090's 32 GB
 
 # 4. 三个集合的 benchmark（含去漂移 MPJPE）
 for s in train_eval heldout_in heldout_cat; do
