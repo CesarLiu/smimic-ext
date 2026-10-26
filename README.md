@@ -1,10 +1,10 @@
 # SuperMimic-Reproduced
 
-> **English summary.** An independent from-scratch reproduction of *SuperMimic* (arXiv:2610.28480): a learned differentiable world model plus short-horizon BPTT actor-critic for Unitree G1 whole-body motion tracking, built on [mjlab](https://github.com/mujocolab/mjlab) / MuJoCo Warp. Includes the data pipeline (LAFAN1, BONES-SEED 129.9k clips), differentiable FK and analytic reward heads, the world model and imagination trainer, torchrun data-parallel training, the Appendix-F benchmark, and an interactive replay viewer. On LAFAN1 it reaches the paper's 0.82 tracking score in 1.66 h on one RTX 5090 (with anchor-relative observations; paper-observation runs are in progress). Documentation is in Chinese; see `docs/` for the paper spec, plan, review log and experiment log.
+> **English summary.** An independent from-scratch reproduction of *SuperMimic* (arXiv:2610.28480): a learned differentiable world model plus short-horizon BPTT actor-critic for Unitree G1 whole-body motion tracking, built on [mjlab](https://github.com/mujocolab/mjlab) / MuJoCo Warp. Includes the data pipeline (LAFAN1, BONES-SEED 129.9k clips), differentiable FK and analytic reward heads, the world model and imagination trainer, torchrun data-parallel training, the Appendix-F benchmark, and an interactive replay viewer. With the paper's observation layout it reaches a normalized return of 0.93 on the full BONES-SEED benchmark (129.9k clips, failure rate 0.11% vs the paper's >0.90 / 0.02%) after 7.1 h on 4×RTX 5090; on whole 100–300 s LAFAN1 clips the proprioception-only policy is capped at ~0.58 by yaw drift (0.904 with anchor-relative observations). Documentation is in Chinese; see `docs/` for the paper spec, plan, review log and experiment log.
 
 从零复现论文 **SuperMimic: Scaling Humanoid Whole-Body Control with One Differentiable World Model**（[arXiv:2610.28480](https://arxiv.org/abs/2610.28480)，CoRL 2026）：一个学习得到的可微世界模型 + 短视野 BPTT actor-critic，用于 Unitree G1 人形全身动作跟踪。底座是 [mjlab](https://github.com/mujocolab/mjlab)（MuJoCo Warp），固定到 commit `8bb2bc9`；不使用 rsl_rl，世界模型、BPTT 训练器、多 clip 动作库、基于回报的重置采样、评测全部自己实现。
 
-> 状态（2026-10-21）：LAFAN1 上达到论文量级（M3），BONES-SEED 全量数据管线与单卡训练完成，多卡训练已跑通；正式结果正在按论文观测口径重跑（e6/e7）。详见 [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md)。
+> 状态（2026-10-22）：论文观测口径下，BONES-SEED 全量基准回报 0.93、失败率 0.11%（论文 >0.90 / 0.02%），四卡 7 h；LAFAN1 整条 220 s 评测受纯本体观测的漂移限制封顶在 ~0.58（加锚点观测 0.904）。详见 [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md)。
 
 ## 结果速览
 
@@ -15,15 +15,18 @@
 | 论文 Fig. 4a | LAFAN1 40 clip | 1×H100 | 论文 | 1.2 h | 0.82 | – |
 | e2 | LAFAN1 40 clip | 1×5090 | **论文** | 1.8 h | 0.56 | 9/40 |
 | e3 | LAFAN1 40 clip | 1×5090 | +锚点相对位姿 | 1.66 h / 3.3 h | 0.824 / **0.904** | 5/40 / 3/40 |
-| 论文 Table A.8 | BONES-SEED 129.5k clip | 1×H100 | 论文 | 3 h | >0.90 | 25/129,514 |
+| 论文 Table A.8 | BONES-SEED 129.5k clip | 1×H100 / 2×H100 | 论文 | 3 h / 9.8 h | >0.90 | 25/129,514 / 0 |
 | e5 | BONES-SEED 129.9k clip | 1×5090 | +锚点相对位姿 | 4.2 h / 5.8 h | 0.934 / 0.935（2000 条子集） | 6/2000 / 5/2000 |
-| e6 / e7 | LAFAN1 40 clip | 3×5090 / 1×5090 | **论文** | 进行中 | – | – |
+| e6 / e7 | LAFAN1 40 clip（整条 220 s） | 3×5090 / 1×5090 | **论文** | 1.6 h / 1.9 h | 0.590 / 0.582 | 6/40 / 3/40 |
+| **e8** | BONES-SEED 129.9k clip | **4×5090** | **论文** | **7.1 h** | **0.930**（全量 129,943 条）| **495/129,943**；去掉 SONIC 杂技关键词后 **145/129,491**（0.11%）|
 
 - 世界模型 8 步开环归一化误差 0.0065–0.0099（论文 0.007–0.011）。
 - 仿真吞吐 4096 环境约 2×10⁵ env-steps/s（5090）；`torch.compile` 后一次想象 fwd+bwd（批 2048，H=32）0.33 s。
 - 四卡数据并行（显式梯度 all-reduce）效率 91%。
 
-**最重要的偏离项**：论文 Table A.1 的策略观测只有 93 维本体项（无状态估计）。按此口径的 e2 评测回报封顶 0.56，根部位置/朝向奖励几乎拿不到；加入 BeyondMimic 式锚点相对观测（goal 组追加 9 维）后 e3 达到 0.904。e3/e5 的数字因此**不与论文同口径**，正式结果以论文口径的 e6/e7 及后续 BONES-SEED 全量 run 为准。
+**观测口径说明**：论文 Table A.1 的策略观测只有 93 维本体项（无状态估计）。在整条 100–300 s 的 LAFAN1 clip 上，纯本体策略 9 s 内 yaw 漂移超过 15°，世界系的根部与速度奖励项随之失效，评测回报封顶 ~0.58（e2/e6/e7 三个 run 一致）；加入 BeyondMimic 式锚点相对观测（goal 组追加 9 维）的 e3 达到 0.904。BONES-SEED 的 clip 中位 5.8 s，漂移影响很小，论文口径的 e8 达到 0.93。e3/e5 的数字**不与论文同口径**，正式结果以论文口径的 e8（BONES-SEED）为准。
+
+**与论文的剩余差距**：e8 的失败率约为论文的 6×，剩余 145 个失败里 flip 类 54/54 全部摔倒（论文单卡 3 h 只失败 1 条）；e8 训练回报在 0.81 平台、学习率尚未衰减（100k / 320k 迭代即停），后续若要追失败数应延长训练让 lr 衰减。
 
 ## 文档
 

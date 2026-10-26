@@ -96,6 +96,7 @@ class Trainer:
         self.ep_len = torch.zeros(env.num_envs, device=self.device)
         self.max_step_reward = heads.reward_cfg.max_step_reward
         self.iteration = 0
+        self.start_iteration = 0  # warm-up (buffer refill) counts from here, also after a resume
         self.num_updates = 0
         self._utd_acc = 0.0
         if cfg.resume is not None:
@@ -134,6 +135,7 @@ class Trainer:
         self.command.bin_return.copy_(ck["bin_return"])
         self.command.bin_memory.copy_(ck["bin_memory"])
         self.iteration = ck["iteration"]
+        self.start_iteration = self.iteration
         self.num_updates = ck["num_updates"]
         print(f"[INFO] resumed from {path} at iteration {self.iteration}")
 
@@ -177,7 +179,7 @@ class Trainer:
             self.iteration += 1
 
             # ---------------- (2)+(3) updates at the configured update-to-data ratio
-            if self.iteration >= sch.warmup_iterations:
+            if self.iteration - self.start_iteration >= sch.warmup_iterations:
                 self._utd_acc += sch.updates_per_env_step
                 while self._utd_acc >= 1.0:
                     self._utd_acc -= 1.0

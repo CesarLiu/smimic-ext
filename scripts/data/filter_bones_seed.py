@@ -16,17 +16,19 @@ from pathlib import Path
 import numpy as np
 import tyro
 
-# SONIC's keyword list (gear_sonic/data_process/filter_and_copy_bones_data.py) minus pure-acrobatics terms,
-# plus the paper's examples, underscore-delimited to avoid substring false positives (plan D16).
+# SONIC's keyword list (gear_sonic/data_process/filter_and_copy_bones_data.py) plus the paper's examples,
+# underscore-delimited to avoid substring false positives (plan D16). The pure-acrobatics terms were
+# dropped on 2026-10-21 to match the paper's post-name-filter count; the e8 full benchmark showed the paper
+# does filter them (129,491 kept vs the paper's 129,514 with them removed), so they are back (EXPERIMENTS e8).
 SONIC_KEYWORDS = [
     "bed", "bike", "chair", "climb", "com_up_50cm", "sitting", "step_on", "seat", "table", "_sit_", "sit_",
     "ladder", "crutch", "_bed_", "_ride_", "scooter", "stepdown", "box_hspu", "50cm_box_", "on_box",
     "fall_from", "on_1m", "form_box", "off_1m", "230m", "jump_over_obstacle_", "lift_crate_come_up_",
     "stair", "box_jump", "box_dips", "walking_on_edge", "push_obstacle",
 ]
-REMOVED_ACROBATICS = ["acrobatics_", "cartwheel", "handstand", "handstand_ff_", "safety_roll", "kozak_dance", "jump_to_shoulder_roll", "monkey_jump"]
+SONIC_ACROBATICS = ["acrobatics_", "cartwheel", "handstand", "handstand_ff_", "safety_roll", "kozak_dance", "jump_to_shoulder_roll", "monkey_jump"]
 PAPER_EXTRA = ["_box_", "box_", "_stair", "jump_off_50cm", "off_50cm", "fence", "look_over"]
-KEYWORDS = sorted(set(SONIC_KEYWORDS + PAPER_EXTRA))
+KEYWORDS = sorted(set(SONIC_KEYWORDS + SONIC_ACROBATICS + PAPER_EXTRA))
 
 # Feasibility thresholds (paper Appendix E + plan D16 choices).
 ELEVATED_Z = 0.20
