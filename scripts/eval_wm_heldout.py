@@ -84,7 +84,7 @@ def main(
             reset_noise=ec["reset_noise"] if train_like else False,
             domain_randomization=ec["domain_randomization"] if train_like else False,
             sampling_mode="uniform" if train_like else "start",
-            replay_capacity=steps + 2,  # keep every recorded row (no ring wrap)
+            replay_capacity=2 * steps + 2,  # an episode end writes two rows (last transition + terminal state): no ring wrap
             record_transitions=True,
             anchor_obs=ec.get("anchor_obs", False),
             seed=seed,
