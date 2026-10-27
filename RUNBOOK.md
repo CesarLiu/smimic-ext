@@ -29,6 +29,21 @@
 - 单卡 H200（141 GB）。与 H100 同代、算力相近，论文的 H100 耗时可直接当参照；显存足够，主训练用论文默认的 batch 4096。
 - 总计约 8–9 小时，BONES-SEED 下载占大头。
 
+## 一键脚本
+
+`scripts/run_experiments.sh` 把下面的步骤串起来，每一阶段结束都有自动关卡，失败就停下并给出原因。建议在 tmux 里跑。已完成的输出会被跳过，所以中断后重跑同一条命令就能接着跑；训练中断会自动续训。
+
+```bash
+bash scripts/run_experiments.sh validate               # 第 1–2 步：测试、LAFAN1 短训练、关卡检查（约 2 小时）
+bash scripts/run_experiments.sh prepare                # 第 3 步：BONES-SEED 下载、转换、过滤，最后打印元数据（约 1 小时）
+# 第 4 步手动：选类别列和留出类别，运行 make_split.py --out data/splits/g1
+bash scripts/run_experiments.sh main data/splits/g1    # 第 5–6 步：训练、评测、汇总、裕度（约 7 小时）
+```
+
+可调的环境变量：`RUN`（默认 g1）、`LAFAN_HOURS`（1.5）、`MAIN_HOURS`（4）、`NUM_ENVS`（4096）、`BATCH`（4096）、`WORKERS`（20）。日志和结果都在 `logs/<run>/`；关卡由 `scripts/check_run.py` 判定，阈值见下面各步的"检查"。
+
+脚本的串联逻辑已在本机用假的 `uv` 演练过（文件名、跳过、续训、关卡失败停下）；真正的命令要到服务器上才第一次运行。
+
 ## 待办
 
 ### 0. 环境
@@ -95,12 +110,12 @@ env -u PYTHONPATH uv run python scripts/eval_margins.py --ckpt logs/lafan_ori/ck
 
 ```bash
 uv run hf download bones-studio/seed g1.tar.gz metadata/seed_metadata_v004.csv --repo-type dataset --local-dir data/raw/bones_seed
-tar -xzf data/raw/bones_seed/g1.tar.gz -C data/raw/bones_seed
-uv run python scripts/data/csv_to_npz_batch.py --input-dir data/raw/bones_seed --output-dir data/npz/bones_seed --input-fps 120 --workers 20
+mkdir -p data/raw/bones_seed/g1_csv && tar -xzf data/raw/bones_seed/g1.tar.gz -C data/raw/bones_seed/g1_csv
+uv run python scripts/data/csv_to_npz_batch.py --input-dir data/raw/bones_seed/g1_csv --output-dir data/npz/bones_seed --input-fps 120 --workers 20
 uv run python scripts/data/filter_bones_seed.py --npz-dir data/npz/bones_seed --workers 20
 ```
 
-压缩包解压出的目录名未确认；`--input-dir` 找不到文件时，改成实际放 CSV 的目录。
+解压到单独的 `g1_csv` 目录：转换脚本会递归扫描 `--input-dir` 下所有 CSV，若直接扫 `data/raw/bones_seed`，元数据 CSV 也会被当成动作文件。
 
 **检查**：过滤后约 129,491 条（与上游 e8 一致）。
 
