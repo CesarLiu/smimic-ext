@@ -1,5 +1,7 @@
 # SuperMimic-Reproduced
 
+> **This fork** adds a held-out generalisation experiment on top of the reproduction: leave-category-out splits of BONES-SEED, a drift-free body error metric, a world-model error probe and an IMU-observable `ori` observation mode. What to run, in order, with a check after each step: **[RUNBOOK.md](RUNBOOK.md)**. Design and how to read the results: [docs/GENERALIZATION.md](docs/GENERALIZATION.md). Everything below is the upstream README.
+
 An independent, from-scratch reproduction of **SuperMimic: Scaling Humanoid Whole-Body Control with One Differentiable World Model** ([arXiv:2610.28480](https://arxiv.org/abs/2610.28480), CoRL 2026) for the Unitree G1, built on [mjlab](https://github.com/mujocolab/mjlab) / MuJoCo Warp. No official code is released; everything here (motion library, differentiable FK, world model, BPTT trainer, return-based reset sampling, data-parallel training, Appendix-F benchmark) is implemented from the paper.
 
 ![G1 policy tracking BONES-SEED motions](media/g1_boneseed_highlights.gif)
