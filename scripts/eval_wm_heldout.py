@@ -27,25 +27,9 @@ from typing import Literal
 import torch
 import tyro
 
-from supermimic.data.motion_convert import load_g1_model
 from supermimic.envs import SuperMimicEnvCfgArgs, make_env
 from supermimic.envs.mdp.motion_library import discover_npz
-from supermimic.envs.tracking_env_cfg import ANCHOR_BODY, ROOT_BODY, TRACKED_BODIES
-from supermimic.eval.benchmark import load_policy_from_checkpoint
-from supermimic.kinematics.g1_fk import G1Kinematics
-from supermimic.world_model.heads import AnalyticHeads
-from supermimic.world_model.state_spec import StateSpecCfg
-from supermimic.world_model.world_model import WorldModel, WorldModelCfg
-
-
-def _tup(v):
-    return tuple(v) if isinstance(v, list) else v
-
-
-def world_model_cfg(d: dict) -> WorldModelCfg:
-    """WorldModelCfg from a checkpoint's ``config["world_model"]`` (asdict output)."""
-    spec = StateSpecCfg(**{k: _tup(v) for k, v in d["state_spec"].items()})
-    return WorldModelCfg(**{k: _tup(v) for k, v in d.items() if k != "state_spec"}, state_spec=spec)
+from supermimic.eval.benchmark import load_policy_from_checkpoint, load_world_model_from_checkpoint
 
 
 @torch.no_grad()
@@ -92,11 +76,7 @@ def main(
         device=device,
     )
     try:
-        robot = env.scene["robot"]
-        heads = AnalyticHeads(G1Kinematics(load_g1_model(), device=device), TRACKED_BODIES, ANCHOR_BODY, ROOT_BODY, robot.data.soft_joint_pos_limits[0].clone(), robot.data.default_joint_pos[0].clone())
-        wm = WorldModel(world_model_cfg(cfg["world_model"]), heads, device)
-        wm.load_state_dict(torch.load(ckpt, map_location=device, weights_only=False)["wm"])
-        wm.eval()
+        wm = load_world_model_from_checkpoint(ckpt, env, device)
         lib = env.command_manager.get_term("motion").library
         buf = env.recorder_manager.get_term("replay").buffer
 

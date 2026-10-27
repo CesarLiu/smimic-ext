@@ -45,6 +45,31 @@ def load_policy_from_checkpoint(path: str | Path, device: str) -> tuple[Policy, 
     return policy, ck["config"]
 
 
+def _tup(v):
+    return tuple(v) if isinstance(v, list) else v
+
+
+def load_world_model_from_checkpoint(path: str | Path, env, device: str):
+    """The checkpoint's world model, with analytic heads built for ``env``'s robot (eval mode)."""
+    from supermimic.data.motion_convert import load_g1_model
+    from supermimic.envs.tracking_env_cfg import ANCHOR_BODY, ROOT_BODY, TRACKED_BODIES
+    from supermimic.kinematics.g1_fk import G1Kinematics
+    from supermimic.world_model.heads import AnalyticHeads
+    from supermimic.world_model.state_spec import StateSpecCfg
+    from supermimic.world_model.world_model import WorldModel, WorldModelCfg
+
+    ck = torch.load(path, map_location=device, weights_only=False)
+    d = ck["config"]["world_model"]
+    spec = StateSpecCfg(**{k: _tup(v) for k, v in d["state_spec"].items()})
+    cfg = WorldModelCfg(**{k: _tup(v) for k, v in d.items() if k != "state_spec"}, state_spec=spec)
+    robot = env.scene["robot"]
+    heads = AnalyticHeads(G1Kinematics(load_g1_model(), device=device), TRACKED_BODIES, ANCHOR_BODY, ROOT_BODY, robot.data.soft_joint_pos_limits[0].clone(), robot.data.default_joint_pos[0].clone())
+    wm = WorldModel(cfg, heads, device)
+    wm.load_state_dict(ck["wm"])
+    wm.eval()
+    return wm
+
+
 @torch.no_grad()
 def run_benchmark(policy: Policy, npz_files: list[str], device: str = "cuda:0", num_envs: int | None = None, future_frames: int = 10, verbose: bool = True, anchor_obs: bool | str = False) -> list[ClipResult]:
     num_envs = min(num_envs or 1024, len(npz_files))

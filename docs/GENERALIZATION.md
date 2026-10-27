@@ -76,7 +76,30 @@ uv run python scripts/report_split.py --categories data/splits/g1/clip_categorie
 | `heldout_in` 明显低于 `train_eval` | 同类别也在记忆 | 先查数据量和过拟合 |
 | `heldout_cat` ≈ `train_eval` | 泛化强 | 直接用更少数据画 scaling 曲线 |
 
+## 反事实鲁棒裕度
+
+问题：此刻的状态或动作稍有不同，整段动作还能跟住吗？世界模型的预测稍有偏差，会不会让策略失败？
+
+做法（`scripts/eval_margins.py`）：同一批环境从同一个 clip 的首帧同步播放（确定性协议），每个环境只在分配给它的时刻 t 被扰动一次，之后同一策略在仿真器里继续跑；`--window`（默认 100 步 = 2 s）内触发训练终止条件即为失败。扰动幅度用世界模型的归一化误差尺度（`StateSpec.error_vector`）来度量，所以扰动大小和模型误差大小可以直接比较。
+
+- **裕度 r(t)**：在幅度网格上导致失败的最小幅度；多个方向时取最小值（最坏方向）和中位数。
+- **模型误差 e(t)**：世界模型从 t−k 出发、用实际动作开环预测到 t 的误差范数（k 默认 8，与训练日志的指标一致）。
+- `--kind state`：随机方向。`e(t) ≥ r(t)` 的时刻比例 = 模型的典型误差大小足以让策略失败的时刻。
+- `--kind wm`：方向和大小直接取模型在该状态的真实误差，按倍数 λ 缩放；λ < 1 时就失败，说明模型自己的误差就会让策略失败。
+- 默认只扰动速度（`--components vel`），因为位置扰动会把脚压进地面，接触求解会额外给一个冲击；`--components all` 包括位置和姿态。
+- 扰动在第 t 步开始时写入仿真器，策略从 t+1 起才观测到（相当于一次推力），不改动观测历史。
+
+两项对照必须约等于 0，否则结果不可信：`max_determinism_drift`（未分叉的环境与对照环境 env 0 的最大状态差）和 `zero_scale_failure_rate`（幅度 0 的分支只把原状态写回）。`nonmonotonic_rate` 是"小幅度失败、大幅度反而成功"的比例，来自接触的非光滑性，比例高时裕度应看成粗略估计。
+
+怎么读：
+
+| 现象 | 含义 |
+|---|---|
+| heldout_cat 的裕度明显小于 train_eval | 策略在新动作上"活着但很脆"，只看失败率看不出来 |
+| heldout_cat 上 e(t) ≥ r(t) 的比例明显高于 train_eval | 世界模型误差在新动作上足以让策略失败；再分清是 e 变大（模型没见过）还是 r 变小（策略更脆） |
+| 失败 clip 在失败前有一段裕度很低的区间 | 失败可以定位到具体时刻（单脚支撑、落地等） |
+
 ## 未验证
 
-- 这些工具是在没有 GPU 和 mjlab 的机器上写的：`test_metrics.py`、`test_make_split.py`、`test_anchor_obs.py` 在本地用四元数替身跑通；`eval_wm_heldout.py`、benchmark 里的 MPJPE 接线、`ori` 模式的仿真端与想象端对拍（`test_anchor_relative_obs_matches_env[ori]`）都还没在真实环境里跑过。第一次在 GPU 机器上先跑 `pytest tests`。
+- 这些工具是在没有 GPU 和 mjlab 的机器上写的：`test_metrics.py`、`test_make_split.py`、`test_anchor_obs.py`、`test_perturb.py`、`test_margins.py` 在本地用四元数替身和替身环境跑通；`eval_wm_heldout.py`、`eval_margins.py` 在真实仿真器上的分叉（依赖不同环境同样输入结果完全相同）、benchmark 里的 MPJPE 接线、`ori` 模式的仿真端与想象端对拍（`test_anchor_relative_obs_matches_env[ori]`）都还没在真实环境里跑过。第一次在 GPU 机器上先跑 `pytest tests`。
 - BONES-SEED 元数据的列名未知，`make_split.py` 的文件名推导类别（`high_jump_R_001__A450` → `high_jump`）只在两个样例名上核对过。
