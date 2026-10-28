@@ -40,3 +40,19 @@ class StateIO:
             self.sim.data.qacc_warmstart[env_ids] = 0.0
         if forward:
             self.sim.forward()
+
+    @torch.no_grad()
+    def sync(self, env_ids: torch.Tensor, src: int = 0, forward: bool = True) -> None:
+        """Make ``env_ids`` exact copies of env ``src`` (qpos, qvel, activations, solver warm start), each at its own origin."""
+        d = self.sim.data
+        k = env_ids.numel()
+        qpos = d.qpos[src : src + 1][:].clone().expand(k, -1).clone()
+        qpos[:, 0:3] += self.origins[env_ids] - self.origins[src]
+        d.qpos[env_ids] = qpos
+        d.qvel[env_ids] = d.qvel[src : src + 1][:].clone().expand(k, -1)
+        for name in ("act", "qacc_warmstart"):
+            arr = getattr(d, name, None)
+            if arr is not None and arr.shape[-1] > 0:
+                arr[env_ids] = arr[src : src + 1][:].clone().expand(k, -1)
+        if forward:
+            self.sim.forward()

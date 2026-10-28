@@ -18,9 +18,12 @@ Kinds (all sizes in the world model's normalised error units, see ``eval/perturb
   * ``action`` : random action offsets (policy action units) held for ``--action-steps`` steps.
 
 How branching works: all envs play the same clip from its first frame with the deterministic benchmark
-protocol (no noise, no randomisation), so until an env's branch time its state and observation history
-equal the control env's (env 0, never perturbed). The run reports the largest state difference between
-unbranched envs and env 0 ("determinism drift"); it should be ~0. A perturbation is written to the
+protocol (no noise, no randomisation), and until its branch time every env is copied from the control
+env (env 0, never perturbed) at each step, so a branch starts from the nominal state plus its
+perturbation. Copying is needed because parallel envs do not stay identical over long clips on their
+own (a first run on 240 s LAFAN1 clips drifted apart by 52 in raw state units). "Determinism drift" is
+the largest one-step divergence before the copy, as a normalised error norm (the same units as
+``--scales``); it should be far below the smallest nonzero scale. A perturbation is written to the
 simulator at the start of step t and the policy sees it from step t+1 on (a disturbance, as in a push
 test). Scale 0 is always included: those branches only rewrite the unchanged state, so their failure rate
 measures how much the write itself disturbs the simulation.
@@ -48,9 +51,11 @@ from supermimic.eval.benchmark import load_policy_from_checkpoint, load_world_mo
 from supermimic.eval.margins import branch_times, margin_stats, run_branch_pass
 from supermimic.eval.perturb import component_mask, margins_from_outcomes, random_directions
 
+# The first LAFAN1 run failed only at the top of the old grid (median r_min 16), so the grid now goes to
+# 64 with half steps above 8. The wm kind is in multiples of the model's own error (8-step norm ~1).
 DEFAULT_SCALES = {
-    "state": [0.0, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0],
-    "wm": [0.0, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0],
+    "state": [0.0, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0, 64.0],
+    "wm": [0.0, 0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0, 64.0],
     "action": [0.0, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0],
 }
 
@@ -172,8 +177,8 @@ def main(
             "by_category": {c: margin_stats(v) for c, v in sorted(by_cat.items())},
         }
         print(json.dumps({k: v for k, v in summary.items() if k != "by_category"}, indent=1))
-        if max_drift > 1e-4:
-            print(f"[warn] unbranched envs drifted from the control by {max_drift:.2e}: branches differ by more than the perturbation")
+        if max_drift > 0.01:
+            print(f"[warn] unbranched envs diverged from the control by {max_drift:.2e} in one step (normalised): compare with the smallest scale {min(x for x in scales if x > 0):g}")
         if summary["zero_scale_failure_rate"] > 0.01:
             print(f"[warn] {100 * summary['zero_scale_failure_rate']:.1f}% of scale-0 branches failed: rewriting the state disturbs the simulation")
         if cat_of:

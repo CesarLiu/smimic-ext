@@ -33,10 +33,10 @@ def last_logged_nse8(train_log: Path) -> float:
     return vals[-1]
 
 
-def margin_checks(margins: dict, max_drift: float = 1e-4, max_zero_fail: float = 0.01, tag: str = "") -> list[Check]:
+def margin_checks(margins: dict, max_drift: float = 0.01, max_zero_fail: float = 0.01, tag: str = "") -> list[Check]:
     s = margins["summary"]
     return [
-        (f"{tag}determinism drift", s["max_determinism_drift"], s["max_determinism_drift"] <= max_drift, f"<= {max_drift:g}"),
+        (f"{tag}determinism drift", s["max_determinism_drift"], s["max_determinism_drift"] <= max_drift, f"<= {max_drift:g} (one step, normalised; smallest scale 0.25)"),
         (f"{tag}scale-0 failure rate", s["zero_scale_failure_rate"], s["zero_scale_failure_rate"] <= max_zero_fail, f"<= {max_zero_fail:g}"),
     ]
 
@@ -83,7 +83,7 @@ def lafan(run_dir: Path = Path("logs/lafan_ori"), ckpt_stem: str = "ckpt_latest"
     ))
 
 
-def margins(files: list[Path], max_drift: float = 1e-4, max_zero_fail: float = 0.01) -> None:
+def margins(files: list[Path], max_drift: float = 0.01, max_zero_fail: float = 0.01) -> None:
     """Validity controls of one or more eval_margins.py outputs."""
     checks: list[Check] = []
     for f in files:

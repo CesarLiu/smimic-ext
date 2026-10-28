@@ -23,8 +23,9 @@ SPEC = StateSpec(StateSpecCfg(), "cpu")
 
 
 class StandInEnv:
-    def __init__(self, n: int):
+    def __init__(self, n: int, jitter: float = 0.0):
         self.num_envs, self.device = n, "cpu"
+        self.jitter = jitter  # per-step root x velocity drift of env j: jitter * j (env 0 never drifts)
         self.s0 = torch.zeros(71)
         self.s0[3] = 1.0  # identity quaternion
         self.s0[2] = 0.75
@@ -38,6 +39,7 @@ class StandInEnv:
         return self._obs(), {}
 
     def step(self, act):
+        self.state[:, 36] += self.jitter * torch.arange(self.num_envs, dtype=self.state.dtype)
         dev = SPEC.error_vector(self.state, self.s0.expand_as(self.state)).norm(dim=-1)
         term = dev > THRESHOLD
         self.state[term] = self.s0  # auto-reset, as the real env does
@@ -54,6 +56,9 @@ class StandInIO:
     def write(self, ids, state):
         self.env.state[ids] = state
 
+    def sync(self, ids, src=0):
+        self.env.state[ids] = self.env.state[src].clone()
+
 
 class BiasedModel:
     """World model that adds a constant velocity error each step (its k-step error is k * bias)."""
@@ -67,11 +72,11 @@ class BiasedModel:
         return s + self.bias
 
 
-def _run(kind, scales, num_dirs=4, times=(8, 33), window=20, bias=0.0, n_env=None):
+def _run(kind, scales, num_dirs=4, times=(8, 33), window=20, bias=0.0, n_env=None, jitter=0.0):
     times = list(times)
     n_dirs = 1 if kind == "wm" else num_dirs
     specs = [(ti, di, si) for ti in range(len(times)) for di in range(n_dirs) for si in range(len(scales))]
-    env = StandInEnv(n_env or len(specs) + 1)
+    env = StandInEnv(n_env or len(specs) + 1, jitter)
     cmd = SimpleNamespace(forced_frame=torch.zeros(env.num_envs, dtype=torch.long), library=SimpleNamespace(clip_start=torch.tensor([0])))
     mask = component_mask("vel")
     dirs = random_directions(num_dirs, 70, mask, seed=0) if kind == "state" else (random_directions(num_dirs, 29, None, 0) if kind == "action" else None)
@@ -110,6 +115,20 @@ def test_action_kind_and_idle_envs_leave_the_state_alone():
     # Actions do nothing in the stand-in, so no action branch can fail; extra idle envs act as controls.
     failed, valid, _, drift, _ = _run("action", [0.0, 1.0, 8.0], n_env=64)
     assert valid.all() and not failed.any() and drift == 0.0
+
+
+def test_unbranched_envs_are_resynced_every_step():
+    # Every env but the control drifts a little each step. Without the per-step copy the drift would
+    # accumulate over the 53 steps of the pass (and start the late branches off-nominal); with it the
+    # reported drift is one step's worth, and the margins equal the drift-free ones.
+    scales = [0.0, 0.5, 1.0, 2.0]
+    jitter = 1e-5
+    failed, valid, _, drift, _ = _run("state", scales, jitter=jitter)
+    n_env = 2 * 4 * len(scales) + 1
+    one_step = jitter * (n_env - 1) / float(SPEC.err_scale[6])
+    assert drift == pytest.approx(one_step, rel=1e-3)
+    m = margins_from_outcomes(failed, scales)
+    assert valid.all() and (m["margin"] == 1.0).all()
 
 
 def test_branch_times_and_stats():

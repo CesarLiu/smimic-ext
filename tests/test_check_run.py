@@ -43,7 +43,7 @@ def test_lafan_gate_passes_on_expected_values(tmp_path, capsys):
         (dict(mpjpe=0.30), "drift-free body error"),
         (dict(yaw=82.0), "mean yaw error"),
         (dict(wm_nse=0.05), "wm script / training log"),
-        (dict(drift=1e-2), "determinism drift"),
+        (dict(drift=0.05), "determinism drift"),
         (dict(zero=0.2), "scale-0 failure rate"),
     ],
 )

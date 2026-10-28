@@ -96,7 +96,7 @@ env -u PYTHONPATH uv run python scripts/eval_margins.py --ckpt logs/lafan_ori/ck
 | 去漂移 MPJPE | 几厘米 | 几十厘米说明指标接错了 |
 | 平均 yaw 误差（diag_drift） | 几度 | 无锚点观测时是 82° |
 | 世界模型 8 步误差 | 接近 TensorBoard 里的 `wm/online_nse_8step` | 差很多说明新脚本有 bug |
-| 裕度脚本的 `max_determinism_drift` | 约 0（≤ 1e-4） | 不同环境同样输入结果不同，分叉之间的差异就不只来自扰动，裕度不可信 |
+| 裕度脚本的 `max_determinism_drift` | 远小于最小幅度 0.25（≤ 0.01，一步内、归一化） | 每步复制后仍然分得很开，分叉之间的差异就不只来自扰动，裕度不可信 |
 | 裕度脚本的 `zero_scale_failure_rate` | 约 0 | 只是把原状态写回仿真器就会导致失败，说明写入本身在扰动仿真 |
 
 ### 3. 准备 BONES-SEED（约 1 小时，主要是下载）

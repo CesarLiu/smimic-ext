@@ -1,8 +1,14 @@
 """Branching runs for counterfactual robustness margins (driven by scripts/eval_margins.py).
 
 Duck-typed on the environment (``num_envs``, ``device``, ``reset``, ``step``), the motion command
-(``forced_frame``, ``library.clip_start``), the state I/O (``read`` / ``write``) and the world model
-(``step``, ``spec.error_vector``), so it carries no simulator imports and can be tested with stand-ins.
+(``forced_frame``, ``library.clip_start``), the state I/O (``read`` / ``write`` / ``sync``) and the world
+model (``step``, ``spec.error_vector``), so it carries no simulator imports and can be tested with stand-ins.
+
+Envs that have not branched yet are copied from the control (env 0) at every step. Identical inputs do
+not keep parallel envs identical over long clips (float rounding differs per env origin, and tracking is
+chaotic over thousands of steps), so without the copy a branch would start from a state that differs
+from the nominal one by more than its perturbation. The reported drift is the largest one-step
+divergence before the copy, in normalised error units, the same units as the perturbation sizes.
 """
 
 from __future__ import annotations
@@ -60,7 +66,9 @@ def run_branch_pass(env, cmd, io, policy, wm, xi, clip, times, chunk, kind, scal
             same[0] = False
             same &= ~finished
             if same.any():
-                drift = max(drift, float((s[same] - s[0]).abs().max()))
+                dev_norm = wm.spec.error_vector(s[same], s[0:1].expand(int(same.sum()), -1)).norm(dim=-1)
+                drift = max(drift, float(dev_norm.max()))
+                io.sync(same.nonzero().squeeze(-1), 0)
         ids = ((branch_t == step) & ~finished).nonzero().squeeze(-1)
         if kind != "action" and ids.numel() > 0:
             if kind == "state":
@@ -69,7 +77,7 @@ def run_branch_pass(env, cmd, io, policy, wm, xi, clip, times, chunk, kind, scal
                 e = wm_err.get(step)
                 d = scale[ids, None] * (e[None] if e is not None else torch.full((1, 70), float("nan"), device=dev))
             if torch.isfinite(d).all():
-                io.write(ids, apply_state_delta(s[ids], d, err_scale, limits))
+                io.write(ids, apply_state_delta(s[0:1].expand(ids.numel(), -1), d, err_scale, limits))
         act = policy(obs["policy"], obs["goal"])
         if nominal:
             hist_a.append(act[0].clone())  # noise-free protocol: the executed action is the policy action
