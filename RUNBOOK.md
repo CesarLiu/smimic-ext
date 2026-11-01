@@ -4,12 +4,13 @@
 
 ## 要回答的问题
 
-论文的基准只测训练动作的覆盖率（Appendix F.2）。这里要回答：
+主问题：**可微世界模型知不知道策略在哪里脆弱？**SuperMimic 的策略只从世界模型的梯度学习，同一个模型也能给出"最坏的扰动方向"和"它认为策略会在多大扰动下失败"。这里在仿真器里检验这两点，并比较训练动作和整类留出的新动作。
 
-1. 在物理可行的动作上，泛化受限于**数据量**还是**见过的动作类别**？
-2. held-out 上的失败来自**世界模型**还是**策略**？
+1. **模型的最坏方向是不是真的最坏**：沿模型梯度给出的方向扰动（`--kind adv`），仿真器里的失败幅度是否明显小于随机方向（`--kind state`）？
+2. **模型预测的裕度准不准**：模型自己想象出的失败幅度，与仿真器在同一时长内的失败幅度是否一致？漏报（仿真会失败、模型认为不会）有多少？
+3. **在新动作上是否变差**：在 `heldout_cat` 上，上面两点是否退化？是策略更脆（裕度变小），还是模型误差变大（`--kind wm` 的 λ 变小）？
 
-做法：在 BONES-SEED 上训练一次，评测三个集合：训练集抽样（`train_eval`）、同类别 held-out（`heldout_in`）、整类留出（`heldout_cat`）。观测用 `--env.anchor-obs ori`（6 维相对朝向，IMU 可得）。
+背景实验（不是主贡献）：三个集合上的回报和世界模型误差，即训练集抽样（`train_eval`）、同类别 held-out（`heldout_in`）和整类留出（`heldout_cat`）。数据量与 held-out 泛化的关系已经有人做过（[sl221/supermimic-scaling](https://github.com/sl221/supermimic-scaling)，按动作名和表演者留出），这里按类别留出，结果可以和它对照。观测用 `--env.anchor-obs ori`（6 维相对朝向，IMU 可得）。
 
 ## 本分支相对上游加了什么
 
@@ -21,6 +22,8 @@
 | 世界模型在策略实际访问状态上的 k 步误差，按类别和 clip 汇总 | `scripts/eval_wm_heldout.py` |
 | 三个集合的结果汇成一张表 | `scripts/report_split.py` |
 | 反事实鲁棒裕度：沿动作在各时刻把状态（或动作）改一点，找出导致失败的最小幅度，并与世界模型自身的预测误差比较 | `scripts/eval_margins.py`、`src/supermimic/eval/margins.py`、`perturb.py` |
+| 模型最坏方向裕度（`--kind adv`）：想象回报对起始状态扰动的梯度方向；同时记录模型自己预测的裕度，与仿真器同时长的裕度比较 | `src/supermimic/eval/adversarial.py`、`scripts/eval_margins.py` |
+| 随机方向与模型最坏方向的逐时刻对比、模型裕度的校准 | `scripts/compare_margins.py` |
 
 **注意**：这些代码是在没有 GPU、没有 mjlab 的机器上写的。`tests/test_metrics.py`、`test_make_split.py`、`test_anchor_obs.py`、`test_perturb.py`、`test_margins.py`（分叉逻辑，用替身环境）已在本地跑通；仿真端的部分（MPJPE 接线、`eval_wm_heldout.py`、`eval_margins.py` 在真实仿真器上的分叉、`ori` 模式的仿真端与想象端对拍）**还没在真实环境里跑过**，所以第 1、2 步是必须先过的关卡。
 
@@ -79,6 +82,7 @@ env -u PYTHONPATH uv run pytest tests -q
 - [ ] 漂移诊断
 - [ ] 世界模型误差脚本
 - [ ] 裕度脚本（只跑 4 个 clip，检查确定性和 0 幅度对照）
+- [ ] 模型最坏方向裕度 `--kind adv`（同样 4 个 clip，检查代码能跑通、两项对照，并看 `compare_margins.py` 的输出）
 
 ```bash
 env -u PYTHONPATH uv run sm-train --run-name lafan_ori --data.npz-dir data/npz/lafan1 --env.anchor-obs ori --schedule.max-hours 1.5
@@ -146,22 +150,30 @@ uv run python scripts/data/make_split.py --manifest data/npz/bones_seed/manifest
 
 **检查**：对照 GENERALIZATION.md 里"结果怎么读"的四种情况，判断属于哪一种，再决定下一步（类别多样性 vs 数据量，或只给世界模型补数据）。
 
-### 6. 反事实鲁棒裕度（每组约 20–30 分钟，可并行）
+### 6. 反事实鲁棒裕度（主实验，每组约 20–30 分钟，可并行）
 
-- [ ] `train_eval` 和 `heldout_cat` 上各跑 `--kind state`（随机方向）和 `--kind wm`（按世界模型自身误差）
+- [ ] `train_eval` 和 `heldout_cat` 上各跑 `--kind state`（随机方向）、`--kind wm`（按世界模型自身误差）和 `--kind adv`（世界模型的最坏方向）
+- [ ] 用 `compare_margins.py` 对比随机方向和模型最坏方向
 
 ```bash
-for s in train_eval heldout_cat; do for k in state wm; do
+for s in train_eval heldout_cat; do for k in state wm adv; do
   env -u PYTHONPATH uv run python scripts/eval_margins.py --ckpt logs/g1/ckpt_latest.pt --npz-dir data/npz/bones_seed \
     --clip-list data/splits/g1/$s.txt --categories data/splits/g1/clip_categories.csv --kind $k --out logs/g1/margins_${s}_$k.json
 done; done
+for s in train_eval heldout_cat; do
+  env -u PYTHONPATH uv run python scripts/compare_margins.py --random logs/g1/margins_${s}_state.json --adv logs/g1/margins_${s}_adv.json --out logs/g1/compare_margins_$s.json
+done
 ```
 
-**检查**：先看 `max_determinism_drift` 和 `zero_scale_failure_rate` 都约等于 0，否则结果不可信。然后对比两个集合的 `median_margin_min`（裕度是否变小）和 `frac_model_error_exceeds_margin`（世界模型误差是否足以让策略失败）。怎么读见 GENERALIZATION.md 的"反事实鲁棒裕度"一节。
+**检查**：先看每个文件的 `max_determinism_drift`（≤ 0.01）和 `zero_scale_failure_rate`（≤ 0.01），否则结果不可信。然后看三件事：
+
+1. `compare_margins` 的 `median_log2_adv_over_random`：负数表示模型的方向用更小的扰动就让策略失败，−1 是一半大小。
+2. adv 文件的 `model_vs_sim`：`agree`（模型裕度与仿真在 2 倍以内，或都不失败）、`missed`（仿真失败、模型认为不会）。
+3. 两个集合对比：`heldout_cat` 上上面两项是否变差，`--kind state` 的 `median_margin_min` 是否变小，`--kind wm` 的 λ 是否变小。怎么读见 GENERALIZATION.md 的"反事实鲁棒裕度"一节。
 
 ## 结果记录
 
-| 日期 | run | train_eval 失败率 / 回报 | heldout_in | heldout_cat | 世界模型 8 步误差（三集） | 裕度中位数 / 模型误差≥裕度比例（train_eval vs heldout_cat） | 结论 |
-|---|---|---|---|---|---|---|---|
-| | lafan_ori（第 2 步） | | – | – | | – | |
-| | g1 | | | | | | |
+| 日期 | run | train_eval 失败率 / 回报 | heldout_in | heldout_cat | 世界模型 8 步误差（三集） | 随机方向裕度中位数（train_eval / heldout_cat） | adv / 随机 log2 中位数 | 模型裕度 agree / missed | 结论 |
+|---|---|---|---|---|---|---|---|---|---|
+| 2026-10-28 | lafan_ori（第 2 步） | 8/40，0.741，MPJPE 5.4 cm | – | – | 1 步 0.011，8 步 0.028 | 16（旧网格上限，漂移未修，无效） | | | 局部跟踪与 CuboiLeo e3 同时长一致，差距来自不观测根部位置 |
+| | g1 | | | | | | | | |

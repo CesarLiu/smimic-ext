@@ -86,7 +86,7 @@ def _run(kind, scales, num_dirs=4, times=(8, 33), window=20, bias=0.0, n_env=Non
     )
     failed = np.zeros((len(times), n_dirs, len(scales)), dtype=bool)
     valid = np.ones_like(failed)
-    for (ti, di, si), (v, f) in zip(specs, res):
+    for (ti, di, si), (v, f, _) in zip(specs, res):
         valid[ti, di, si], failed[ti, di, si] = v, f
     return failed, valid, err_norm, drift, nominal_fail
 

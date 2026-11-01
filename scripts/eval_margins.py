@@ -15,7 +15,14 @@ Kinds (all sizes in the world model's normalised error units, see ``eval/perturb
   * ``state``  : random unit directions in the ``--components`` subspace, sizes ``--scales``;
   * ``wm``     : the world model's actual k-step error at that state, scaled by ``--scales`` (1 = exactly
                  the model's prediction): a margin below 1 means the model's own error breaks the policy;
-  * ``action`` : random action offsets (policy action units) held for ``--action-steps`` steps.
+  * ``action`` : random action offsets (policy action units) held for ``--action-steps`` steps;
+  * ``adv``    : the world model's worst-case direction, the steepest descent of the imagined return
+                 (``--adv-horizon`` steps, the training objective without the critic) w.r.t. a perturbation of
+                 the start state, in the ``--components`` subspace. Also records the model's own predicted
+                 margin along it (smallest scale whose imagined rollout ends with survival < 0.5) and the
+                 simulator margin re-cut to the same horizon, so the two can be compared like for like.
+                 Compare the sim margin with ``--kind state`` on the same clips (scripts/compare_margins.py):
+                 if the model's direction fails at much smaller sizes, the model knows where the policy is weak.
 
 How branching works: all envs play the same clip from its first frame with the deterministic benchmark
 protocol (no noise, no randomisation), and until its branch time every env is copied from the control
@@ -42,14 +49,18 @@ import numpy as np
 import torch
 import tyro
 
+from supermimic.data.replay_buffer import StartBatch
 from supermimic.envs import SuperMimicEnvCfgArgs, make_env
 from supermimic.envs.mdp.motion_library import discover_npz
 from supermimic.envs.sim_context import SimContext
 from supermimic.envs.state_io import StateIO
 from supermimic.envs.tracking_env_cfg import FOOT_GEOM_REGEX
+from supermimic.eval.adversarial import predicted_margin, worst_case_direction
 from supermimic.eval.benchmark import load_policy_from_checkpoint, load_world_model_from_checkpoint
-from supermimic.eval.margins import branch_times, margin_stats, run_branch_pass
+from supermimic.eval.margins import branch_times, calibration_stats, margin_stats, run_branch_pass
 from supermimic.eval.perturb import component_mask, margins_from_outcomes, random_directions
+from supermimic.imagination.compiled import ImagStep
+from supermimic.imagination.rollout import imagine
 
 # The first LAFAN1 run failed only at the top of the old grid (median r_min 16), so the grid now goes to
 # 64 with half steps above 8. The wm kind is in multiples of the model's own error (8-step norm ~1).
@@ -58,6 +69,7 @@ DEFAULT_SCALES = {
     "wm": [0.0, 0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0, 64.0],
     "action": [0.0, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0],
 }
+DEFAULT_SCALES["adv"] = DEFAULT_SCALES["state"]
 
 
 @torch.no_grad()
@@ -67,7 +79,7 @@ def main(
     clips: list[str] | None = None,
     clip_list: Path | None = None,
     categories: Path | None = None,
-    kind: Literal["state", "wm", "action"] = "state",
+    kind: Literal["state", "wm", "action", "adv"] = "state",
     components: Literal["vel", "pos", "all"] = "vel",
     scales: list[float] | None = None,
     num_dirs: int = 8,
@@ -76,14 +88,16 @@ def main(
     max_times: int = 40,
     action_steps: int = 1,
     wm_k: int = 8,
+    adv_horizon: int | None = None,
     max_clips: int | None = 200,
     num_envs: int = 2048,
     seed: int = 0,
     device: str = "cuda:0",
     out: Path | None = None,
 ) -> None:
-    """``components``: which state parts a ``state`` / ``wm`` perturbation touches. ``vel`` (default) avoids
-    pushing feet into the ground, whose contact resolution adds a kick of its own; ``all`` includes poses."""
+    """``components``: which state parts a ``state`` / ``wm`` / ``adv`` perturbation touches. ``vel`` (default)
+    avoids pushing feet into the ground, whose contact resolution adds a kick of its own; ``all`` includes poses.
+    ``adv_horizon``: imagined steps for ``adv`` (default: the checkpoint's training horizon, 32)."""
     if clip_list is not None:
         clips = [l.strip() for l in open(clip_list) if l.strip()]
     files = [str(f) for f in discover_npz(npz_dir, names=clips)]
@@ -93,14 +107,12 @@ def main(
         raise SystemExit(f"no clips found under {npz_dir}")
     scales = sorted(set([0.0] + list(scales or DEFAULT_SCALES[kind])))
     policy, cfg = load_policy_from_checkpoint(ckpt, device)
-    env = make_env(
-        SuperMimicEnvCfgArgs(
-            npz_files=files, num_envs=num_envs, future_frames=cfg["env"]["future_frames"], episode_length_s=1.0e5,
-            action_noise_std=0.0, obs_noise=False, reset_noise=False, domain_randomization=False,
-            sampling_mode="start", record_transitions=False, anchor_obs=cfg["env"].get("anchor_obs", False), seed=seed,
-        ),
-        device=device,
+    env_args = SuperMimicEnvCfgArgs(
+        npz_files=files, num_envs=num_envs, future_frames=cfg["env"]["future_frames"], episode_length_s=1.0e5,
+        action_noise_std=0.0, obs_noise=False, reset_noise=False, domain_randomization=False,
+        sampling_mode="start", record_transitions=False, anchor_obs=cfg["env"].get("anchor_obs", False), seed=seed,
     )
+    env = make_env(env_args, device=device)
     try:
         cmd = env.command_manager.get_term("motion")
         lib = cmd.library
@@ -109,7 +121,44 @@ def main(
         wm = load_world_model_from_checkpoint(ckpt, env, device)
         limits = env.scene["robot"].data.soft_joint_pos_limits[0]
         mask = component_mask(components, device)
-        n_dirs = 1 if kind == "wm" else num_dirs
+        n_dirs = 1 if kind in ("wm", "adv") else num_dirs
+        pt = cfg.get("policy_trainer", {})
+        adv_h = adv_horizon or int(pt.get("horizon", 32))
+        if kind == "adv":
+            wm.requires_grad_(False)
+            policy.requires_grad_(False)
+            step_fn = ImagStep(wm, lib.default_joint_pos)
+            disc = float(pt.get("gamma", 0.99)) ** torch.arange(adv_h, device=device, dtype=torch.float32)
+            hist_len = env_args.history_length
+
+            def rollout_from(states, ci, step, hist_s, hist_a):
+                """Imagined rollout from ``states`` at ``step`` of clip ``ci``, with the nominal observation history:
+                the policy first sees the perturbation one step later, as in the simulator branches."""
+                n = states.shape[0]
+                idx = [max(step - hist_len + 1 + i, 0) for i in range(hist_len)]
+                zero = torch.zeros_like(hist_a[0])
+                hs = torch.stack([hist_s[k] for k in idx])[:, None].expand(-1, n, -1).contiguous()
+                ha = torch.stack([hist_a[k - 1] if k >= 1 else zero for k in idx])[:, None].expand(-1, n, -1).contiguous()
+                start = StartBatch(state=states, xi=xi.expand(n, -1).contiguous(), frame=(lib.clip_start[ci] + step).reshape(1).expand(n).contiguous(),
+                                   prev_action=ha[-1].contiguous(), hist_states=hs, hist_actions=ha)
+                return imagine(wm, policy, lib, start, adv_h, cfg["env"]["future_frames"], obs_noise=False, step_fn=step_fn, anchor_obs=cfg["env"].get("anchor_obs", False))
+
+            def make_adv_fn(ci, info):
+                def adv_fn(step, hist_s, hist_a):
+                    def objective(st):  # the training objective without the critic, per start state
+                        ro = rollout_from(st, ci, step, hist_s, hist_a)
+                        return (disc[:, None] * ro.survival[:-1] * ro.rewards).sum(0)
+
+                    def fails(st):
+                        return rollout_from(st, ci, step, hist_s, hist_a).survival[-1] < 0.5
+
+                    s = hist_s[step][None]
+                    d, gn = worst_case_direction(objective, s, mask, wm.spec.err_scale)
+                    pm = predicted_margin(fails, s, d, [x for x in scales if x > 0], wm.spec.err_scale, limits)
+                    info[step] = {"grad_norm": float(gn[0]), "model_margin": float(pm[0])}
+                    return d[0] if gn[0] > 0 else torch.full_like(d[0], float("nan"))
+
+                return adv_fn
         dirs = None
         if kind == "state":
             dirs = random_directions(num_dirs, 70, mask, seed).to(device)
@@ -131,16 +180,24 @@ def main(
             specs = [(ti, di, si) for ti in range(len(times)) for di in range(n_dirs) for si in range(len(scales))]
             failed = np.zeros((len(times), n_dirs, len(scales)), dtype=bool)
             valid = np.ones_like(failed)
+            offset = np.full(failed.shape, -1)
             err_norm: dict[int, float] = {}
+            adv_dirs, adv_info = {}, {}
+            adv_fn = make_adv_fn(ci, adv_info) if kind == "adv" else None
             nominal_fail = -1
             for start in range(0, len(specs), num_envs - 1):
                 chunk = specs[start : start + num_envs - 1]
-                res, en, drift, nf = run_branch_pass(env, cmd, io, policy, wm, xi, ci, times, chunk, kind, scales, dirs, mask, wm.spec.err_scale, limits, window, action_steps, wm_k)
+                res, en, drift, nf = run_branch_pass(env, cmd, io, policy, wm, xi, ci, times, chunk, kind, scales, dirs, mask, wm.spec.err_scale, limits, window, action_steps, wm_k, adv_fn, adv_dirs)
                 err_norm.update(en)
                 max_drift = max(max_drift, drift)
                 nominal_fail = nf
-                for (ti, di, si), (v, fl) in zip(chunk, res):
-                    valid[ti, di, si], failed[ti, di, si] = v, fl
+                for (ti, di, si), (v, fl, off) in zip(chunk, res):
+                    valid[ti, di, si], failed[ti, di, si], offset[ti, di, si] = v, fl, off
+            if kind == "adv":  # a zero gradient gives no direction: those times carry no margin
+                for ti, t in enumerate(times):
+                    if adv_info.get(t, {}).get("grad_norm", 0.0) <= 0.0:
+                        valid[ti] = False
+                m_h = margins_from_outcomes(failed & (offset >= 0) & (offset < adv_h), scales)
             m = margins_from_outcomes(failed, scales)
             zero_fail += int((failed[..., 0] & valid[..., 0]).sum())
             zero_n += int(valid[..., 0].sum())
@@ -158,7 +215,10 @@ def main(
                     mg = mg * e  # lambda -> norm units
                 mmin = float(mg.min())
                 exceeds = None if e is None else (bool(e >= mmin) if kind != "action" else None)
-                rows.append({"frame": t, "margin_min": mmin, "margin_median": float(np.median(mg)), "wm_error_norm": e, "model_error_exceeds_margin": exceeds})
+                row = {"frame": t, "margin_min": mmin, "margin_median": float(np.median(mg)), "wm_error_norm": e, "model_error_exceeds_margin": exceeds}
+                if kind == "adv":
+                    row.update(adv_info[t], sim_margin_model_horizon=float(m_h["margin"][ti][0]))
+                rows.append(row)
             cat = cat_of.get(name, "<uncategorised>")
             st = margin_stats(rows)
             clip_rows.append({"name": name, "category": cat, "frames": int(lib.clip_len[ci]), "nominal_fail_step": nominal_fail, **st, "times": rows,
@@ -176,6 +236,8 @@ def main(
             "max_determinism_drift": max_drift,
             "by_category": {c: margin_stats(v) for c, v in sorted(by_cat.items())},
         }
+        if kind == "adv":
+            summary.update(adv_horizon=adv_h, model_vs_sim=calibration_stats(all_times))
         print(json.dumps({k: v for k, v in summary.items() if k != "by_category"}, indent=1))
         if max_drift > 0.01:
             print(f"[warn] unbranched envs diverged from the control by {max_drift:.2e} in one step (normalised): compare with the smallest scale {min(x for x in scales if x > 0):g}")

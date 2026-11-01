@@ -82,8 +82,11 @@ validate() {
   [ -f "$dir/drift_ckpt_latest.json" ] || launch "$dir/eval_drift.log" "${PY[@]}" scripts/diag_drift.py --ckpt "$ck" --npz-dir data/npz/lafan1 --out "$dir/drift_ckpt_latest.json"
   [ -f "$dir/wm_error_ckpt_latest.json" ] || launch "$dir/eval_wm.log" "${PY[@]}" scripts/eval_wm_heldout.py --ckpt "$ck" --npz-dir data/npz/lafan1 --out "$dir/wm_error_ckpt_latest.json"
   [ -f "$dir/margins_ckpt_latest.json" ] || launch "$dir/eval_margins.log" "${PY[@]}" scripts/eval_margins.py --ckpt "$ck" --npz-dir data/npz/lafan1 --max-clips 4 --max-times 8 --out "$dir/margins_ckpt_latest.json"
+  [ -f "$dir/margins_adv_ckpt_latest.json" ] || launch "$dir/eval_margins_adv.log" "${PY[@]}" scripts/eval_margins.py --ckpt "$ck" --npz-dir data/npz/lafan1 --max-clips 4 --max-times 8 --kind adv --out "$dir/margins_adv_ckpt_latest.json"
   wait_all || die "an evaluation failed"
   "${PY[@]}" scripts/check_run.py lafan --run-dir "$dir" || die "LAFAN1 gate failed: fix this before running BONES-SEED"
+  "${PY[@]}" scripts/check_run.py margins "$dir/margins_adv_ckpt_latest.json" || die "adv margin controls failed"
+  "${PY[@]}" scripts/compare_margins.py --random "$dir/margins_ckpt_latest.json" --adv "$dir/margins_adv_ckpt_latest.json" --out "$dir/compare_margins.json"
   log "validate: all gates passed"
 }
 
@@ -141,16 +144,20 @@ main_run() {
     --wm "train_eval=$dir/wm_train_eval.json" "heldout_in=$dir/wm_heldout_in.json" "heldout_cat=$dir/wm_heldout_cat.json" \
     --out "$dir/report.json" | tee "$dir/report.txt"
 
-  log "robustness margins: state and wm kinds on train_eval and heldout_cat (parallel)"
+  log "robustness margins: random (state), model-error (wm) and model worst-case (adv) on train_eval and heldout_cat (parallel)"
   for s in train_eval heldout_cat; do
-    for k in state wm; do
+    for k in state wm adv; do
       [ -f "$dir/margins_${s}_$k.json" ] || launch "$dir/eval_margins_${s}_$k.log" "${PY[@]}" scripts/eval_margins.py --ckpt "$ck" \
         --npz-dir data/npz/bones_seed --clip-list "$split/$s.txt" --categories "$split/clip_categories.csv" --kind "$k" --out "$dir/margins_${s}_$k.json"
     done
   done
   wait_all || die "a margin run failed"
   "${PY[@]}" scripts/check_run.py margins "$dir"/margins_*.json || die "margin controls failed: the margins are not trustworthy"
-  log "main: done. Results: $dir/report.txt and $dir/margins_*.json (fill in the RUNBOOK results table)"
+  for s in train_eval heldout_cat; do
+    "${PY[@]}" scripts/compare_margins.py --random "$dir/margins_${s}_state.json" --adv "$dir/margins_${s}_adv.json" --out "$dir/compare_margins_$s.json" \
+      | tee "$dir/compare_margins_$s.txt"
+  done
+  log "main: done. Results: $dir/report.txt, $dir/compare_margins_*.txt and $dir/margins_*.json (fill in the RUNBOOK results table)"
 }
 
 case "${1:-}" in

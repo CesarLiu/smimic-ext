@@ -30,8 +30,16 @@ def branch_times(length: int, first: int, every: int, window: int, max_times: in
     return times
 
 
-def run_branch_pass(env, cmd, io, policy, wm, xi, clip, times, chunk, kind, scales, dirs, mask, err_scale, limits, window, action_steps, wm_k):
-    """One synchronous play of ``clip`` with the branches in ``chunk`` ((time idx, dir idx, scale idx) per env 1..)."""
+def run_branch_pass(env, cmd, io, policy, wm, xi, clip, times, chunk, kind, scales, dirs, mask, err_scale, limits, window, action_steps, wm_k, adv_fn=None, adv_dirs=None):
+    """One synchronous play of ``clip`` with the branches in ``chunk`` ((time idx, dir idx, scale idx) per env 1..).
+
+    ``kind == "adv"``: ``adv_fn(step, hist_states, hist_actions)`` gives the unit direction at a branch time
+    from the nominal history (states up to and including ``step``, actions before it). Directions are cached
+    in ``adv_dirs`` ({step: (70,)}), which the caller shares across the passes of one clip.
+
+    Returns ([(valid, failed, steps from branch to failure or -1)] per spec, {t: wm error norm}, drift,
+    nominal fail step).
+    """
     n, dev = env.num_envs, env.device
     branch_t = torch.full((n,), -1, dtype=torch.long, device=dev)
     scale = torch.zeros(n, device=dev)
@@ -73,9 +81,13 @@ def run_branch_pass(env, cmd, io, policy, wm, xi, clip, times, chunk, kind, scal
         if kind != "action" and ids.numel() > 0:
             if kind == "state":
                 d = delta[ids]
-            else:  # wm: the model's own error direction and size at this state, scaled
+            elif kind == "wm":  # the model's own error direction and size at this state, scaled
                 e = wm_err.get(step)
                 d = scale[ids, None] * (e[None] if e is not None else torch.full((1, 70), float("nan"), device=dev))
+            else:  # adv: the model's steepest-descent direction of the imagined return at this state
+                if step not in adv_dirs:
+                    adv_dirs[step] = adv_fn(step, hist_s, hist_a) if nominal else torch.full((70,), float("nan"), device=dev)
+                d = scale[ids, None] * adv_dirs[step][None]
             if torch.isfinite(d).all():
                 io.write(ids, apply_state_delta(s[0:1].expand(ids.numel(), -1), d, err_scale, limits))
         act = policy(obs["policy"], obs["goal"])
@@ -95,8 +107,53 @@ def run_branch_pass(env, cmd, io, policy, wm, xi, clip, times, chunk, kind, scal
     for j, (ti, di, si) in enumerate(chunk):
         bt, fs = times[ti], fs_all[j + 1]
         valid = not (0 <= fs < bt)  # failed before its branch time: the nominal run already failed there
-        out.append((valid, valid and bt <= fs < bt + window))
+        failed = valid and bt <= fs < bt + window
+        out.append((valid, failed, fs - bt if failed else -1))  # the offset lets callers re-cut shorter windows
     return out, {t: e.norm().item() for t, e in wm_err.items()}, drift, fs_all[0]
+
+
+def calibration_stats(times_rows: list[dict]) -> dict:
+    """``adv`` rows: the model's predicted margin against the simulator margin over the same horizon.
+
+    Agreement = both find no failure in the grid, or both do and are within a factor of 2. ``missed``: the
+    simulator fails but the model predicts no failure (the dangerous case); ``false_alarm``: the reverse.
+    """
+    pairs = [(x["model_margin"], x["sim_margin_model_horizon"]) for x in times_rows if x.get("model_margin") is not None and x.get("sim_margin_model_horizon") is not None]
+    n = max(len(pairs), 1)
+    fin = math.isfinite
+    log_ratio = [math.log2(m / s) for m, s in pairs if fin(m) and fin(s)]
+    agree = sum((not fin(m) and not fin(s)) or (fin(m) and fin(s) and abs(math.log2(m / s)) <= 1.0) for m, s in pairs)
+    return {
+        "times": len(pairs),
+        "sim_fails_in_grid": sum(fin(s) for _, s in pairs) / n,
+        "model_fails_in_grid": sum(fin(m) for m, _ in pairs) / n,
+        "agree": agree / n,
+        "missed": sum(fin(s) and not fin(m) for m, s in pairs) / n,
+        "false_alarm": sum(fin(m) and not fin(s) for m, s in pairs) / n,
+        "median_log2_model_over_sim": float(np.median(log_ratio)) if log_ratio else math.nan,
+    }
+
+
+def compare_directions(random_rows: dict, adv_rows: dict) -> dict:
+    """Simulator margin along the model's worst-case direction against the worst of the random directions.
+
+    Both map (clip, frame) -> ``margin_min``; only keys present in both with a margin count. A grid without
+    failure (inf) is clipped to ``cap`` (twice the largest finite margin seen) so ratios stay defined.
+    """
+    keys = [k for k in adv_rows if k in random_rows and adv_rows[k] is not None and random_rows[k] is not None]
+    if not keys:
+        return {"times": 0}
+    finite = [v for k in keys for v in (adv_rows[k], random_rows[k]) if math.isfinite(v)]
+    cap = 2.0 * max(finite) if finite else 1.0
+    capped = lambda v: v if math.isfinite(v) else cap  # noqa: E731
+    lr = np.array([math.log2(capped(adv_rows[k]) / capped(random_rows[k])) for k in keys])
+    return {
+        "times": len(keys),
+        "median_log2_adv_over_random": float(np.median(lr)),
+        "frac_adv_smaller": float((lr < 0).mean()),
+        "frac_adv_at_most_half": float((lr <= -1).mean()),
+        "frac_adv_larger": float((lr > 0).mean()),
+    }
 
 
 def margin_stats(times_rows: list[dict]) -> dict:
