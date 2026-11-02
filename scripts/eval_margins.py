@@ -30,7 +30,10 @@ env (env 0, never perturbed) at each step, so a branch starts from the nominal s
 perturbation. Copying is needed because parallel envs do not stay identical over long clips on their
 own (a first run on 240 s LAFAN1 clips drifted apart by 52 in raw state units). "Determinism drift" is
 the largest one-step divergence before the copy, as a normalised error norm (the same units as
-``--scales``); it should be far below the smallest nonzero scale. A perturbation is written to the
+``--scales``). Its maximum is reported but not gated: on GPU, a few ill-conditioned contact moments
+(~1 per 10k steps) resolve differently in some envs from identical state and action, so the gates
+(scripts/check_run.py) use the share of synced env-steps above 0.01 and above 0.25 (``drift_frac_over_tol``,
+``drift_event_rate``) plus a retest with shuffled branch-to-env assignment. A perturbation is written to the
 simulator at the start of step t and the policy sees it from step t+1 on (a disturbance, as in a push
 test). Scale 0 is always included: those branches only rewrite the unchanged state, so their failure rate
 measures how much the write itself disturbs the simulation.
@@ -92,12 +95,15 @@ def main(
     max_clips: int | None = 200,
     num_envs: int = 2048,
     seed: int = 0,
+    shuffle_seed: int | None = None,
     device: str = "cuda:0",
     out: Path | None = None,
 ) -> None:
     """``components``: which state parts a ``state`` / ``wm`` / ``adv`` perturbation touches. ``vel`` (default)
     avoids pushing feet into the ground, whose contact resolution adds a kick of its own; ``all`` includes poses.
-    ``adv_horizon``: imagined steps for ``adv`` (default: the checkpoint's training horizon, 32)."""
+    ``adv_horizon``: imagined steps for ``adv`` (default: the checkpoint's training horizon, 32).
+    ``shuffle_seed``: permute which env runs which branch, so a retest (scripts/retest_margins.py) puts the
+    simulator's rare nondeterministic contact events on different branches."""
     if clip_list is not None:
         clips = [l.strip() for l in open(clip_list) if l.strip()]
     files = [str(f) for f in discover_npz(npz_dir, names=clips)]
@@ -111,6 +117,7 @@ def main(
         npz_files=files, num_envs=num_envs, future_frames=cfg["env"]["future_frames"], episode_length_s=1.0e5,
         action_noise_std=0.0, obs_noise=False, reset_noise=False, domain_randomization=False,
         sampling_mode="start", record_transitions=False, anchor_obs=cfg["env"].get("anchor_obs", False), seed=seed,
+        nconmax=128, njmax=500,  # lockstep envs overflow the shared broadphase buffer at 35 (SuperMimicEnvCfgArgs)
     )
     env = make_env(env_args, device=device)
     try:
@@ -171,6 +178,7 @@ def main(
 
         clip_rows, all_times, by_cat = [], [], defaultdict(list)
         zero_fail, zero_n, nonmono, nonmono_n, max_drift = 0, 0, 0, 0, 0.0
+        drift_counts = {"env_steps": 0, "over_tol": 0, "events": 0}
         for ci in range(lib.num_clips):
             name = lib.clips[ci].name
             times = branch_times(int(lib.clip_len[ci]), wm_k, branch_every, window, max_times)
@@ -178,6 +186,8 @@ def main(
                 clip_rows.append({"name": name, "skipped": "shorter than the branch window"})
                 continue
             specs = [(ti, di, si) for ti in range(len(times)) for di in range(n_dirs) for si in range(len(scales))]
+            if shuffle_seed is not None:
+                random.Random(shuffle_seed + ci).shuffle(specs)
             failed = np.zeros((len(times), n_dirs, len(scales)), dtype=bool)
             valid = np.ones_like(failed)
             offset = np.full(failed.shape, -1)
@@ -187,7 +197,7 @@ def main(
             nominal_fail = -1
             for start in range(0, len(specs), num_envs - 1):
                 chunk = specs[start : start + num_envs - 1]
-                res, en, drift, nf = run_branch_pass(env, cmd, io, policy, wm, xi, ci, times, chunk, kind, scales, dirs, mask, wm.spec.err_scale, limits, window, action_steps, wm_k, adv_fn, adv_dirs)
+                res, en, drift, nf = run_branch_pass(env, cmd, io, policy, wm, xi, ci, times, chunk, kind, scales, dirs, mask, wm.spec.err_scale, limits, window, action_steps, wm_k, adv_fn, adv_dirs, drift_counts)
                 err_norm.update(en)
                 max_drift = max(max_drift, drift)
                 nominal_fail = nf
@@ -234,6 +244,10 @@ def main(
             "zero_scale_failure_rate": zero_fail / max(zero_n, 1),
             "nonmonotonic_rate": nonmono / max(nonmono_n, 1),
             "max_determinism_drift": max_drift,
+            "drift_env_steps": drift_counts["env_steps"],
+            "drift_frac_over_tol": drift_counts["over_tol"] / max(drift_counts["env_steps"], 1),
+            "drift_event_rate": drift_counts["events"] / max(drift_counts["env_steps"], 1),
+            "shuffle_seed": shuffle_seed,
             "by_category": {c: margin_stats(v) for c, v in sorted(by_cat.items())},
         }
         if kind == "adv":

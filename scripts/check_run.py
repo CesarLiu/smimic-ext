@@ -5,7 +5,8 @@
 
 ``lafan``: the end-to-end check of the new code on a short LAFAN1 run (RUNBOOK step 2): return, drift-free
 body error, yaw drift, the world-model error script against the training log, and the margin controls.
-``margins``: the two validity controls of every margin run (determinism drift, scale-0 failures).
+``margins``: the validity controls of every margin run (drift rates, scale-0 failures).
+The retest gate (same margins under a shuffled branch-to-env assignment) is scripts/retest_margins.py.
 """
 
 from __future__ import annotations
@@ -33,10 +34,15 @@ def last_logged_nse8(train_log: Path) -> float:
     return vals[-1]
 
 
-def margin_checks(margins: dict, max_drift: float = 0.01, max_zero_fail: float = 0.01, tag: str = "") -> list[Check]:
+def margin_checks(margins: dict, max_over_tol: float = 0.01, max_event_rate: float = 1e-4, max_zero_fail: float = 0.01, tag: str = "") -> list[Check]:
+    """Drift is gated by rates, not its maximum (eval_margins.py docstring): an event rate of 1e-4 per env-step
+    hits ~1% of 100-step branch windows. Old outputs without the rate fields fail (nan)."""
     s = margins["summary"]
+    over_tol, events = s.get("drift_frac_over_tol", math.nan), s.get("drift_event_rate", math.nan)
     return [
-        (f"{tag}determinism drift", s["max_determinism_drift"], s["max_determinism_drift"] <= max_drift, f"<= {max_drift:g} (one step, normalised; smallest scale 0.25)"),
+        (f"{tag}drift > 0.01 share", over_tol, over_tol <= max_over_tol, f"<= {max_over_tol:g} (synced env-steps; p99 below 0.01)"),
+        (f"{tag}drift > 0.25 event rate", events, events <= max_event_rate, f"<= {max_event_rate:g} (~1% of branch windows hit)"),
+        (f"{tag}max drift (info)", s["max_determinism_drift"], True, "not gated: rare GPU contact events"),
         (f"{tag}scale-0 failure rate", s["zero_scale_failure_rate"], s["zero_scale_failure_rate"] <= max_zero_fail, f"<= {max_zero_fail:g}"),
     ]
 
@@ -83,11 +89,11 @@ def lafan(run_dir: Path = Path("logs/lafan_ori"), ckpt_stem: str = "ckpt_latest"
     ))
 
 
-def margins(files: list[Path], max_drift: float = 0.01, max_zero_fail: float = 0.01) -> None:
+def margins(files: tyro.conf.Positional[list[Path]], max_over_tol: float = 0.01, max_event_rate: float = 1e-4, max_zero_fail: float = 0.01) -> None:
     """Validity controls of one or more eval_margins.py outputs."""
     checks: list[Check] = []
     for f in files:
-        checks += margin_checks(_load(f), max_drift, max_zero_fail, tag=f"{Path(f).stem}: ")
+        checks += margin_checks(_load(f), max_over_tol, max_event_rate, max_zero_fail, tag=f"{Path(f).stem}: ")
     _report(checks)
 
 

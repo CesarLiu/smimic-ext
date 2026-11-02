@@ -92,6 +92,11 @@ class SuperMimicEnvCfgArgs:
     anchor_obs: bool | str = False  # "none" | "ori" (6) | "pos_ori" (9) anchor-relative goal term; legacy bools accepted (supermimic/anchor_obs.py)
     debug_vis: bool = False  # draw the reference ghost in the viewer (scripts/play.py)
     extra_command_kwargs: dict = field(default_factory=dict)
+    # MuJoCo Warp buffers. nconmax also sizes the broadphase pair buffer, which is shared by all worlds: enough
+    # when envs are decorrelated (training), but envs kept in lockstep (eval_margins.py) peak together and
+    # overflow it, dropping pairs in GPU-atomic order, i.e. different contacts per env.
+    nconmax: int = 35
+    njmax: int = 250
 
 
 def make_env_cfg(a: SuperMimicEnvCfgArgs) -> ManagerBasedRlEnvCfg:
@@ -235,7 +240,7 @@ def make_env_cfg(a: SuperMimicEnvCfgArgs) -> ManagerBasedRlEnvCfg:
         terminations=terminations,
         recorders=recorders,
         viewer=ViewerConfig(origin_type=ViewerConfig.OriginType.ASSET_BODY, entity_name="robot", body_name="torso_link", distance=2.8, fovy=55.0, elevation=-5.0, azimuth=120.0),
-        sim=QuietSimulationCfg(nconmax=35, njmax=250, mujoco=MujocoCfg(timestep=0.005, iterations=10, ls_iterations=20)),
+        sim=QuietSimulationCfg(nconmax=a.nconmax, njmax=a.njmax,mujoco=MujocoCfg(timestep=0.005, iterations=10, ls_iterations=20)),
         decimation=4,
         episode_length_s=a.episode_length_s,
         seed=a.seed,

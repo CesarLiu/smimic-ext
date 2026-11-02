@@ -47,6 +47,23 @@ bash scripts/run_experiments.sh main data/splits/g1    # 第 5–6 步：训练�
 
 脚本的串联逻辑已在本机用假的 `uv` 演练过（文件名、跳过、续训、关卡失败停下）；真正的命令要到服务器上才第一次运行。
 
+### 只有 L4 时：主问题改在 LAFAN1 上做
+
+没有 H200 时，主问题在 LAFAN1 上用整类留出来做：留出 dance、fight、fightAndSports（13 条，0.76 h），训练其余 25 条（1.57 h）。BONES-SEED 放不下（单是压缩包就 23.5 GB），主训练也要几十小时。L4 的设置：
+
+- 批 2048。批 4096 要约 24 GB 显存，放不下；批 2048 用 12.4 GB，稳态 1.55 it/s（5090 是 4.3 it/s）。
+- 训练 5 小时，约 2.8 万次迭代。
+- 这台机器没有可用的 EGL，运行前先 `source` 一个软件 EGL（Mesa），例如 Uni-SuperMimic 的 `tools/softgl.sh`。
+
+```bash
+uv run python scripts/data/make_split.py --manifest data/npz/lafan1/manifest.csv \
+  --heldout-categories dance fight fightAndSports --out data/splits/lafan_cat
+LAFAN_HOURS=5 BATCH=2048 WORKERS=8 bash scripts/run_experiments.sh validate
+RUN=lafan_cat NPZ=data/npz/lafan1 MAIN_HOURS=5 BATCH=2048 WORKERS=8 bash scripts/run_experiments.sh main data/splits/lafan_cat
+```
+
+`heldout_in` 只有 2 条，只能看个大概。
+
 ## 待办
 
 ### 0. 环境
@@ -100,7 +117,8 @@ env -u PYTHONPATH uv run python scripts/eval_margins.py --ckpt logs/lafan_ori/ck
 | 去漂移 MPJPE | 几厘米 | 几十厘米说明指标接错了 |
 | 平均 yaw 误差（diag_drift） | 几度 | 无锚点观测时是 82° |
 | 世界模型 8 步误差 | 接近 TensorBoard 里的 `wm/online_nse_8step` | 差很多说明新脚本有 bug |
-| 裕度脚本的 `max_determinism_drift` | 远小于最小幅度 0.25（≤ 0.01，一步内、归一化） | 每步复制后仍然分得很开，分叉之间的差异就不只来自扰动，裕度不可信 |
+| 裕度脚本的 `drift_frac_over_tol` / `drift_event_rate` | 一步漂移 > 0.01 的环境·步 ≤ 1%；> 0.25（最小幅度）的 ≤ 1e-4 | 每步复制后仍然分得很开，分叉之间的差异就不只来自扰动，裕度不可信。`max_determinism_drift` 只作参考：GPU 上少数病态接触时刻（约每万步一次）会让相同状态和动作解出不同结果，最大值总会到 1–10 |
+| `retest_margins.py`（打乱分支到环境的分配后重跑） | 同一时刻的裕度相差不超过一档的比例 ≥ 90%；adv 与随机方向的结论相同，中位 log2 比值差 ≤ 0.5 | 仿真噪声在改变结论 |
 | 裕度脚本的 `zero_scale_failure_rate` | 约 0 | 只是把原状态写回仿真器就会导致失败，说明写入本身在扰动仿真 |
 
 ### 3. 准备 BONES-SEED（约 1 小时，主要是下载）
@@ -165,7 +183,7 @@ for s in train_eval heldout_cat; do
 done
 ```
 
-**检查**：先看每个文件的 `max_determinism_drift`（≤ 0.01）和 `zero_scale_failure_rate`（≤ 0.01），否则结果不可信。然后看三件事：
+**检查**：先看 `check_run.py margins` 的漂移比例、`zero_scale_failure_rate`（≤ 0.01）和 `retest_margins.txt`（heldout_cat 4 条 clip 的重测），否则结果不可信。然后看三件事：
 
 1. `compare_margins` 的 `median_log2_adv_over_random`：负数表示模型的方向用更小的扰动就让策略失败，−1 是一半大小。
 2. adv 文件的 `model_vs_sim`：`agree`（模型裕度与仿真在 2 倍以内，或都不失败）、`missed`（仿真失败、模型认为不会）。
