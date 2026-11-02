@@ -34,13 +34,17 @@ import tyro
 
 FPS = 50
 _SUFFIX = re.compile(r"(?:_[RL])?_\d+__A\d+(?:_M)?$")
+_LAFAN = re.compile(r"^([A-Za-z]+)\d+_subject\d+$")  # LAFAN1: walk1_subject1 -> walk
 _EXTENSIONS = (".csv", ".npz", ".bvh", ".fbx", ".usd")
 
 
 def move_of(name: str) -> str:
     """Clip name without take / actor / mirror suffix (falls back to the full name)."""
     m = _SUFFIX.search(name)
-    return name[: m.start()] if m else name
+    if m:
+        return name[: m.start()]
+    m = _LAFAN.match(name)
+    return m.group(1) if m else name
 
 
 def mirror_group(name: str) -> str:
@@ -101,7 +105,7 @@ def inspect(names: dict[str, int], df) -> None:
     hours = sum(names.values()) / FPS / 3600
     print(f"{len(names)} kept clips, {hours:.2f} h")
     moves = Counter(move_of(n) for n in names)
-    unmatched = sum(1 for n in names if not _SUFFIX.search(n))
+    unmatched = sum(1 for n in names if not (_SUFFIX.search(n) or _LAFAN.match(n)))
     print(f"\nname-derived moves: {len(moves)} distinct; {unmatched} names do not match the take/actor suffix pattern")
     for m, c in moves.most_common(25):
         print(f"  {c:6d}  {m}")
