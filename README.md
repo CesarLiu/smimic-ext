@@ -138,6 +138,7 @@ The design documents are in Chinese; a full Chinese version of this README follo
 | [docs/REVIEW_LOG.md](docs/REVIEW_LOG.md) | Self-review and two adversarial reviews of the plan |
 | [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) | Experiment log: configuration, curves, evaluation, decisions that deviated from the plan, pitfalls |
 | [docs/GENERALIZATION.md](docs/GENERALIZATION.md) | Held-out generalisation experiment (g-series): splits, commands, how to read the results |
+| [docs/RESEARCH_DIRECTIONS.md](docs/RESEARCH_DIRECTIONS.md) | Survey: SuperMimic's development, community discussion, derived research directions, and where world-model BPTT transfers |
 
 ## Engineering notes
 
