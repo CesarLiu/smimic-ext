@@ -68,6 +68,7 @@ class Trainer:
                 replay_capacity=cfg.env.replay_capacity,
                 compact_library=cfg.env.compact_library,
                 anchor_obs=cfg.env.anchor_obs,
+                extra_command_kwargs={"gmax_mode": cfg.env.gmax_mode},
                 seed=cfg.seed + 1000 * self.rank,
             ),
             device=self.device,

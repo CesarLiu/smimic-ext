@@ -30,6 +30,7 @@ class EnvCfg:
     reset_noise: bool = True
     domain_randomization: bool = True
     sampling_mode: str = "return"
+    gmax_mode: Literal["const", "remaining"] = "const"  # return-based sampler: see MultiClipMotionCommandCfg.gmax_mode
     replay_capacity: int = 1000
     future_frames: int = 10
     compact_library: bool = False

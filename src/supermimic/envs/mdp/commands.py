@@ -36,6 +36,17 @@ if TYPE_CHECKING:
     from mjlab.viewer.debug_visualizer import DebugVisualizer
 
 
+def normalize_return_to_go(rtg: torch.Tensor, remaining: torch.Tensor, gamma: float, g_max: float) -> torch.Tensor:
+    """Scale returns-to-go by the best return still available (gmax_mode="remaining").
+
+    ``remaining`` is the number of reward steps left in the clip from each step. With the per-step reward
+    bound g_max * (1 - gamma), the best return-to-go over m steps is g_max * (1 - gamma^m); the result is
+    g_max * rtg / best, so perfect tracking scores g_max whether the clip ends in 5 steps or 500.
+    """
+    best = g_max * (1.0 - torch.pow(torch.as_tensor(gamma, dtype=torch.float64, device=rtg.device), remaining.clamp_min(1).double()))
+    return (g_max * rtg.double() / best).clamp(0.0, g_max).to(rtg.dtype)
+
+
 class MultiClipMotionCommand(CommandTerm):
     cfg: MultiClipMotionCommandCfg
     _env: ManagerBasedRlEnv
@@ -74,6 +85,7 @@ class MultiClipMotionCommand(CommandTerm):
         self.forced_frame = torch.full((n,), -1, dtype=torch.long, device=self.device)
         self.ep_rewards = torch.zeros(n, self.max_ep_steps, device=self.device)
         self.ep_bins = torch.zeros(n, self.max_ep_steps, dtype=torch.long, device=self.device)
+        self.ep_frames = torch.zeros(n, self.max_ep_steps, dtype=torch.long, device=self.device)
         self.ep_len = torch.zeros(n, dtype=torch.long, device=self.device)
         self._gamma_pow = cfg.gamma ** torch.arange(self.max_ep_steps, device=self.device, dtype=torch.float64)
         self.bootstrap_fn = None  # optional: env_ids -> value estimate for truncated episodes
@@ -202,6 +214,7 @@ class MultiClipMotionCommand(CommandTerm):
         pos = self.ep_len[ids].clamp_max(self.max_ep_steps - 1)
         self.ep_rewards[ids, pos] = reward[ids]
         self.ep_bins[ids, pos] = self.library.bin_of_frame(self.frame[ids])
+        self.ep_frames[ids, pos] = self.frame[ids]
         self.ep_len[ids] = torch.minimum(self.ep_len[ids] + 1, torch.full_like(pos, self.max_ep_steps))
 
     def _finalize_episodes(self, env_ids: torch.Tensor) -> None:
@@ -231,6 +244,10 @@ class MultiClipMotionCommand(CommandTerm):
             else:
                 remaining = lens[:, None] - torch.arange(T, device=self.device)[None, :]
                 tmask = tmask & ~(truncated[:, None] & (remaining < cfg.min_remaining_steps))
+        if cfg.gmax_mode == "remaining":
+            frames = self.ep_frames[env_ids, :T]
+            remaining = self.library.clip_last[self.library.frame_clip[frames]] - frames + 1
+            rtg = normalize_return_to_go(rtg, remaining, cfg.gamma, cfg.g_max)
         valid = tmask.reshape(-1)
         b = bins.reshape(-1)[valid]
         g = rtg.reshape(-1)[valid].float()
@@ -417,6 +434,10 @@ class MultiClipMotionCommandCfg(CommandTermCfg):
     ema_alpha: float = 0.05
     memory_alpha: float = 0.01
     min_remaining_steps: int = 100
+    # "const": G_b compares returns-to-go with the single constant g_max (plan D14). "remaining": each step's
+    # return-to-go is divided by the best return still available until its clip ends (scaled to g_max), so the
+    # short tail bins of clips, whose return-to-go is small by construction, no longer look hard.
+    gmax_mode: Literal["const", "remaining"] = "const"
     max_logged_steps: int = 1024
     compact_library: bool = False
     library_fp16: bool = True
