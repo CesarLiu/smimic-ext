@@ -152,6 +152,9 @@ class AnalyticHeads(AnalyticHeadsBase):
     def critic_features(self, s: torch.Tensor, ref: ReferenceFrame) -> torch.Tensor:
         return self.root_error_features(s, ref)
 
+    def aux(self, s: torch.Tensor) -> torch.Tensor:
+        return self.anchor_pose(s)
+
     def anchor_pose(self, s: torch.Tensor) -> torch.Tensor:
         """(n, 7) world pose of the anchor body (G1 anchor goals; the same quantity as ``evaluate``'s aux)."""
         b = self.robot_bodies(s)

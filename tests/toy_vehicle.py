@@ -12,6 +12,8 @@ from dataclasses import dataclass
 
 import torch
 
+from supermimic.tasks.base import TaskBase
+from supermimic.tasks.reset_sampler import SequenceLayout
 from supermimic.world_model.heads_base import AnalyticHeadsBase, HeadsStep
 from supermimic.world_model.spec_base import StateSpecBase, StateSpecCfgBase
 
@@ -129,3 +131,34 @@ def vehicle_states(n, dtype=torch.float32, seed=0):
 def vehicle_ref(n, seed=0):
     g = torch.Generator().manual_seed(seed)
     return VehicleRef(torch.randn(n, 2, generator=g), torch.randn(n, generator=g), 5.0 + torch.rand(n, generator=g))
+
+
+# ---------------------------------------------------------------------- task: tracking reference trajectories
+
+
+class VehicleTrackingTask(TaskBase):
+    """Track concatenated reference trajectories; the goal previews the next ``preview`` reference steps
+    as (speed, cos, sin of the heading change relative to the current target)."""
+
+    def __init__(self, lengths=(40, 25, 60), preview: int = 4, seed: int = 0):
+        g = torch.Generator().manual_seed(seed)
+        self.layout = SequenceLayout.from_lengths(lengths, bin_size=10)
+        t = self.layout.num_steps
+        self.pos = torch.cumsum(0.1 * torch.randn(t, 2, generator=g), 0)
+        self.yaw = torch.cumsum(0.05 * torch.randn(t, generator=g), 0)
+        self.speed = 5.0 + torch.rand(t, generator=g)
+        self.preview = preview
+        self.goal_dim = 3 * preview
+
+    def targets(self, idx, horizon):
+        steps = torch.arange(horizon + 1, device=idx.device)[:, None]
+        return torch.minimum(idx[None, :] + steps, self.layout.last_of(idx)[None, :])
+
+    def reference(self, idx):
+        return VehicleRef(self.pos[idx], self.yaw[idx], self.speed[idx])
+
+    def goal(self, idx, ref, aux, noise):
+        ahead = self.targets(idx, self.preview - 1)  # (preview, n)
+        dyaw = self.yaw[ahead] - ref.yaw[None]
+        g = torch.stack([self.speed[ahead], torch.cos(dyaw), torch.sin(dyaw)], -1)  # (preview, n, 3)
+        return g.permute(1, 0, 2).reshape(idx.shape[0], self.goal_dim)

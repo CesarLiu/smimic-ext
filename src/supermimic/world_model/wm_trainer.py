@@ -7,9 +7,11 @@ from dataclasses import dataclass
 import torch
 
 from supermimic.data.replay_buffer import ReplayBuffer, WindowBatch
-from supermimic.envs.mdp.motion_library import MotionLibrary
-from supermimic.world_model.heads import ReferenceFrame
+from supermimic.tasks.base import TaskBase
+from supermimic.tasks.motion_tracking import as_task
+from supermimic.tasks.motion_tracking import reference_at  # noqa: F401  (re-exported, moved)
 from supermimic.training.distributed import allreduce_grads
+from supermimic.world_model.heads_base import ref_slice
 from supermimic.world_model.world_model import WorldModel
 
 
@@ -24,16 +26,13 @@ class WMTrainerCfg:
     compile: str | None = "default"
 
 
-def reference_at(lib: MotionLibrary, frame: torch.Tensor) -> ReferenceFrame:
-    r = lib.ref(frame)
-    b = lib.bodies(frame)
-    return ReferenceFrame(b.pos_w, b.quat_w, b.lin_vel_w, b.ang_vel_w, r.root_pos_w, r.root_quat_w)
-
-
 class WorldModelTrainer:
-    def __init__(self, wm: WorldModel, lib: MotionLibrary, cfg: WMTrainerCfg):
+    def __init__(self, wm: WorldModel, task: TaskBase, cfg: WMTrainerCfg):
+        """``task`` supplies the references of the termination labels; a ``MotionLibrary`` is accepted
+        and wrapped as motion tracking."""
         self.wm = wm
-        self.lib = lib
+        self.task = as_task(task, wm.heads)
+        self.lib = getattr(self.task, "lib", None)
         self.cfg = cfg
         self.opt = torch.optim.Adam(wm.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
         wm.enable_compile(cfg.compile)
@@ -44,9 +43,8 @@ class WorldModelTrainer:
 
     def loss_on(self, w: WindowBatch):
         k, n = w.frame.shape
-        # Only the root pose of the references is needed for the termination features.
-        r = self.lib.ref(w.frame.reshape(-1))
-        refs = [ReferenceFrame(None, None, None, None, r.root_pos_w[j * n : (j + 1) * n], r.root_quat_w[j * n : (j + 1) * n]) for j in range(k)]
+        ref_all = self.task.termination_reference(w.frame.reshape(-1))
+        refs = [ref_slice(ref_all, slice(j * n, (j + 1) * n)) for j in range(k)]
         return self.wm.window_loss(w.states, w.a_exec, w.xi, w.done, refs)
 
     def update(self, buffer: ReplayBuffer) -> dict[str, float]:

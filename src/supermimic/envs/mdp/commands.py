@@ -7,7 +7,8 @@ functions work unchanged, plus:
 * ``goal``        (N, K*68) future-frame goal features (plan D5)
 * ``root_*``      reference pelvis quantities for the paper's root terminations
 * ``clip_end``    (N,) True once the clip's last frame has been reached (time-out)
-* return-based reset sampling over 1 s bins of the whole library (plan D14)
+* return-based reset sampling over 1 s bins of the whole library (plan D14), delegated to the
+  task-agnostic ``supermimic.tasks.reset_sampler.ReturnBasedResetSampler``
 """
 
 from __future__ import annotations
@@ -29,22 +30,17 @@ from mjlab.utils.lab_api.math import (
 )
 
 from supermimic.envs.mdp.motion_library import MotionLibrary
+from supermimic.tasks.reset_sampler import (
+    ResetSamplerCfg,
+    ReturnBasedResetSampler,
+    SequenceLayout,
+    normalize_return_to_go,  # noqa: F401  (re-exported)
+)
 
 if TYPE_CHECKING:
     from mjlab.entity import Entity
     from mjlab.envs import ManagerBasedRlEnv
     from mjlab.viewer.debug_visualizer import DebugVisualizer
-
-
-def normalize_return_to_go(rtg: torch.Tensor, remaining: torch.Tensor, gamma: float, g_max: float) -> torch.Tensor:
-    """Scale returns-to-go by the best return still available (gmax_mode="remaining").
-
-    ``remaining`` is the number of reward steps left in the clip from each step. With the per-step reward
-    bound g_max * (1 - gamma), the best return-to-go over m steps is g_max * (1 - gamma^m); the result is
-    g_max * rtg / best, so perfect tracking scores g_max whether the clip ends in 5 steps or 500.
-    """
-    best = g_max * (1.0 - torch.pow(torch.as_tensor(gamma, dtype=torch.float64, device=rtg.device), remaining.clamp_min(1).double()))
-    return (g_max * rtg.double() / best).clamp(0.0, g_max).to(rtg.dtype)
 
 
 class MultiClipMotionCommand(CommandTerm):
@@ -67,7 +63,6 @@ class MultiClipMotionCommand(CommandTerm):
             compact=cfg.compact_library, store_dtype=torch.float16 if cfg.library_fp16 else torch.float32,
         )
         print(f"[INFO] {self.library.summary()}")
-        lib = self.library
 
         n = self.num_envs
         self.frame = torch.zeros(n, dtype=torch.long, device=self.device)
@@ -77,22 +72,33 @@ class MultiClipMotionCommand(CommandTerm):
         self.body_quat_relative_w = torch.zeros(n, len(cfg.body_names), 4, device=self.device)
         self.body_quat_relative_w[:, :, 0] = 1.0
 
-        # Return-based reset sampling state.
-        self.bin_return = torch.full((lib.num_bins,), cfg.g_max, device=self.device)
-        self.bin_memory = torch.full((lib.num_bins,), 1.0 / lib.num_bins, device=self.device)
-        self.max_ep_steps = min(int(math.ceil(env.cfg.episode_length_s / env.step_dt)) + 2, cfg.max_logged_steps)
-        # Evaluation hook: when >= 0, the next reset of that env starts exactly at this global frame.
-        self.forced_frame = torch.full((n,), -1, dtype=torch.long, device=self.device)
-        self.ep_rewards = torch.zeros(n, self.max_ep_steps, device=self.device)
-        self.ep_bins = torch.zeros(n, self.max_ep_steps, dtype=torch.long, device=self.device)
-        self.ep_frames = torch.zeros(n, self.max_ep_steps, dtype=torch.long, device=self.device)
-        self.ep_len = torch.zeros(n, dtype=torch.long, device=self.device)
-        self._gamma_pow = cfg.gamma ** torch.arange(self.max_ep_steps, device=self.device, dtype=torch.float64)
-        self.bootstrap_fn = None  # optional: env_ids -> value estimate for truncated episodes
+        self._init_reset_sampler(int(math.ceil(env.cfg.episode_length_s / env.step_dt)) + 2)
 
         for k in ("error_anchor_pos", "error_anchor_rot", "error_body_pos", "error_body_rot",
                   "error_joint_pos", "error_joint_vel", "sampling_entropy", "episode_return_to_go"):
             self.metrics[k] = torch.zeros(n, device=self.device)
+
+    def _init_reset_sampler(self, episode_steps: int) -> None:
+        """Return-based reset sampling state (plan D14)."""
+        cfg = self.cfg
+        scfg = ResetSamplerCfg(**{f: getattr(cfg, f) for f in ResetSamplerCfg.__dataclass_fields__})
+        self.reset_sampler = ReturnBasedResetSampler(SequenceLayout.from_motion_library(self.library), scfg, self.num_envs, episode_steps, self.device)
+        # Evaluation hook: when >= 0, the next reset of that env starts exactly at this global frame.
+        self.forced_frame = torch.full((self.num_envs,), -1, dtype=torch.long, device=self.device)
+
+    # The sampler's state under the names checkpoints, the training loop and scripts use.
+    bin_return = property(lambda self: self.reset_sampler.bin_return)
+    bin_memory = property(lambda self: self.reset_sampler.bin_memory)
+    ep_len = property(lambda self: self.reset_sampler.ep_len)
+    max_ep_steps = property(lambda self: self.reset_sampler.max_ep_steps)
+
+    @property
+    def bootstrap_fn(self):
+        return self.reset_sampler.bootstrap_fn
+
+    @bootstrap_fn.setter
+    def bootstrap_fn(self, fn) -> None:
+        self.reset_sampler.bootstrap_fn = fn
 
     # ------------------------------------------------------------------ reference (mjlab MotionCommand API)
 
@@ -211,83 +217,22 @@ class MultiClipMotionCommand(CommandTerm):
         ids = torch.arange(self.num_envs, device=self.device) if env_mask is None else env_mask.nonzero().squeeze(-1)
         if ids.numel() == 0:
             return
-        pos = self.ep_len[ids].clamp_max(self.max_ep_steps - 1)
-        self.ep_rewards[ids, pos] = reward[ids]
-        self.ep_bins[ids, pos] = self.library.bin_of_frame(self.frame[ids])
-        self.ep_frames[ids, pos] = self.frame[ids]
-        self.ep_len[ids] = torch.minimum(self.ep_len[ids] + 1, torch.full_like(pos, self.max_ep_steps))
+        self.reset_sampler.log_step(ids, reward[ids], self.frame[ids])
 
     def _finalize_episodes(self, env_ids: torch.Tensor) -> None:
         """Fold the finished episodes' discounted returns-to-go into the per-bin estimates."""
-        cfg = self.cfg
-        lens = self.ep_len[env_ids]
-        if lens.sum() == 0:
-            return
-        T = int(lens.max().item())
-        r = self.ep_rewards[env_ids, :T].double()
-        bins = self.ep_bins[env_ids, :T]
-        tmask = torch.arange(T, device=self.device)[None, :] < lens[:, None]
-        r = r * tmask
-        gp = self._gamma_pow[:T]
-        # Return-to-go R_t = sum_{s>=t} gamma^{s-t} r_s via a reverse cumulative sum.
-        disc = r * gp[None, :]
-        rtg = torch.flip(torch.cumsum(torch.flip(disc, [1]), 1), [1]) / gp[None, :]
-        # Truncated (timed-out) episodes: bootstrap with the critic if available, otherwise
-        # drop the steps too close to the truncation point (plan D14).
-        terminated = self._env.termination_manager.terminated[env_ids] if hasattr(self._env, "termination_manager") else torch.ones_like(lens, dtype=torch.bool)
-        truncated = ~terminated & ~self.clip_end[env_ids]
-        if truncated.any():
-            if self.bootstrap_fn is not None:
-                v = self.bootstrap_fn(env_ids).double()  # (n,)
-                remaining = (lens[:, None] - torch.arange(T, device=self.device)[None, :]).clamp_min(0).double()
-                rtg = rtg + truncated[:, None] * (cfg.gamma ** remaining) * v[:, None]
-            else:
-                remaining = lens[:, None] - torch.arange(T, device=self.device)[None, :]
-                tmask = tmask & ~(truncated[:, None] & (remaining < cfg.min_remaining_steps))
-        if cfg.gmax_mode == "remaining":
-            frames = self.ep_frames[env_ids, :T]
-            remaining = self.library.clip_last[self.library.frame_clip[frames]] - frames + 1
-            rtg = normalize_return_to_go(rtg, remaining, cfg.gamma, cfg.g_max)
-        valid = tmask.reshape(-1)
-        b = bins.reshape(-1)[valid]
-        g = rtg.reshape(-1)[valid].float()
-        if b.numel() == 0:
-            return
-        sums = torch.zeros(self.library.num_bins, device=self.device).index_add_(0, b, g)
-        cnts = torch.zeros(self.library.num_bins, device=self.device).index_add_(0, b, torch.ones_like(g))
-        touched = cnts > 0
-        mean = sums[touched] / cnts[touched]
-        self.bin_return[touched] = (1 - cfg.ema_alpha) * self.bin_return[touched] + cfg.ema_alpha * mean
-        self.metrics["episode_return_to_go"][env_ids] = rtg[:, 0].float()
-        self.ep_len[env_ids] = 0
+        tm = getattr(self._env, "termination_manager", None)
+        terminated = tm.terminated[env_ids] if tm is not None else torch.ones_like(env_ids, dtype=torch.bool)
+        rtg0 = self.reset_sampler.finalize(env_ids, terminated, self.clip_end[env_ids])
+        if rtg0 is not None:
+            self.metrics["episode_return_to_go"][env_ids] = rtg0
 
     # ------------------------------------------------------------------ sampling
 
     def _sample_frames(self, n: int) -> torch.Tensor:
-        lib = self.library
-        cfg = self.cfg
-        if cfg.sampling_mode == "start":
-            clips = torch.randint(0, lib.num_clips, (n,), device=self.device)
-            return lib.clip_start[clips]
-        if cfg.sampling_mode == "uniform":
-            # Uniform over frames (long clips get proportionally more starts), leaving >= 2 steps.
-            f = torch.randint(0, lib.num_frames, (n,), device=self.device)
-            return torch.minimum(f, lib.last_frame_of(f) - 2).clamp_min(0)
-        assert cfg.sampling_mode == "return"
-        hard = torch.softmax(-cfg.softmax_temp * self.bin_return / cfg.g_max, dim=0)
-        self.bin_memory = (1 - cfg.memory_alpha) * self.bin_memory + cfg.memory_alpha * hard
-        p = (
-            cfg.uniform_ratio / lib.num_bins
-            + cfg.hard_ratio * hard
-            + cfg.memory_ratio * self.bin_memory / self.bin_memory.sum()
-        )
-        p = p / p.sum()
-        b = torch.multinomial(p, n, replacement=True)
-        u = torch.rand(n, device=self.device)
-        f = lib.bin_start[b] + (u * (lib.bin_end[b] - lib.bin_start[b]).float()).long()
-        f = torch.minimum(f, lib.last_frame_of(f) - 2).clamp_min(lib.clip_start[lib.frame_clip[f]])
-        ent = -(p * (p + 1e-12).log()).sum() / math.log(max(lib.num_bins, 2))
-        self.metrics["sampling_entropy"][:] = ent
+        f, ent = self.reset_sampler.sample(n)
+        if ent is not None:
+            self.metrics["sampling_entropy"][:] = ent
         return f
 
     def _write_reference_state_to_sim(self, env_ids, root_pos, root_ori, root_lin_vel, root_ang_vel, joint_pos, joint_vel):

@@ -1,4 +1,9 @@
-"""Imagined rollouts through the world model (paper §3.3)."""
+"""Imagined rollouts through the world model (paper §3.3).
+
+Robot-specific parts (observation, its noise and history layout, reward, termination and critic
+features) come from ``wm.heads`` (``AnalyticHeadsBase``); references, goals and the advance of task
+time come from the task (``TaskBase``).
+"""
 
 from __future__ import annotations
 
@@ -6,19 +11,14 @@ from dataclasses import dataclass
 
 import torch
 
-from supermimic.anchor_obs import ANCHOR_OBS_SLICES, anchor_obs_mode
 from supermimic.data.replay_buffer import StartBatch
-from supermimic.envs.mdp.motion_library import MotionLibrary
 from supermimic.imagination.compiled import ImagStep
-from supermimic.policy.nets import Policy
-from supermimic.world_model.heads import OBS_NOISE_HALF, ReferenceFrame, anchor_relative_obs  # noqa: F401  (OBS_NOISE_HALF re-exported)
-from supermimic.world_model.wm_trainer import reference_at
+from supermimic.tasks.base import TaskBase
+from supermimic.tasks.motion_tracking import ANCHOR_NOISE_HALF  # noqa: F401  (re-exported, moved)
+from supermimic.tasks.motion_tracking import as_task
+from supermimic.world_model.heads import OBS_NOISE_HALF  # noqa: F401  (re-exported, G1 table)
+from supermimic.world_model.heads_base import ref_slice
 from supermimic.world_model.world_model import WorldModel
-
-# The robot-specific parts (observation, its noise and history layout, reward, termination and critic
-# features) come from ``wm.heads`` (AnalyticHeadsBase). The goal side below is motion tracking:
-# goal windows and references from the motion library, and the G1 anchor-relative goal term.
-ANCHOR_NOISE_HALF = torch.tensor([0.25] * 3 + [0.05] * 6)
 
 
 @dataclass
@@ -28,16 +28,16 @@ class ImagRollout:
     rewards: torch.Tensor  # (H, n)      r_{t+1}
     dhat: torch.Tensor  # (H+1, n)    predicted termination prob of s_t (d_0 = 0)
     survival: torch.Tensor  # (H+1, n)    c_t
-    goals: torch.Tensor  # (H+1, n, 680)
+    goals: torch.Tensor  # (H+1, n, goal_dim)
     e_root: torch.Tensor  # (H+1, n, critic_feat_dim)  privileged critic features
-    frames: torch.Tensor  # (H+1, n)
+    frames: torch.Tensor  # (H+1, n)    target steps of task time
     reward_terms: dict  # mean of each reward term over the rollout (diagnostics)
 
 
 def imagine(
     wm: WorldModel,
-    policy: Policy,
-    lib: MotionLibrary,
+    policy,
+    task: TaskBase,
     start: StartBatch,
     horizon: int,
     future_frames: int = 10,
@@ -45,29 +45,24 @@ def imagine(
     step_fn: ImagStep | None = None,
     anchor_obs: bool | str = False,
 ) -> ImagRollout:
+    """Roll ``policy(obs_history_flat, goal) -> action`` through the frozen world model for ``horizon`` steps.
+
+    ``task`` is a ``TaskBase``; a ``MotionLibrary`` is accepted and wrapped as motion tracking with
+    ``future_frames`` and ``anchor_obs`` (which are not used when a task is given).
+    """
+    if isinstance(task, TaskBase) and (future_frames != 10 or anchor_obs not in (False, "none")):
+        raise ValueError("future_frames / anchor_obs configure the motion-library wrapper; set them on the task instead")
+    heads = wm.heads
+    task = as_task(task, heads, future_frames, anchor_obs)
     device = start.state.device
     n = start.state.shape[0]
-    heads = wm.heads
     step_fn = step_fn or ImagStep(wm)
     noise_half = heads.obs_noise_half().to(device)
-    mode = anchor_obs_mode(anchor_obs)
-    anchor_slice = ANCHOR_OBS_SLICES[mode]
-    anchor_noise_half = ANCHOR_NOISE_HALF.to(device)[anchor_slice]
-    ai = heads.anchor_index if mode != "none" else None
 
     def add_noise(o):
         if obs_noise:
             return o + (torch.rand_like(o) * 2 - 1) * noise_half
         return o
-
-    def make_goal(frame_t, ref_t, anchor_pose):
-        g = lib.goal_window(frame_t, future_frames)
-        if mode == "none":
-            return g
-        rel = anchor_relative_obs(anchor_pose[..., 0:3], anchor_pose[..., 3:7], ref_t.body_pos_w[..., ai, :], ref_t.body_quat_w[..., ai, :])[..., anchor_slice]
-        if obs_noise:
-            rel = rel + (torch.rand_like(rel) * 2 - 1) * anchor_noise_half
-        return torch.cat([g, rel], dim=-1)
 
     # Initial observation history from the logged states/actions (noise re-sampled per frame).
     hist = [add_noise(heads.observation(start.hist_states[i], start.hist_actions[i], start.xi)) for i in range(start.hist_states.shape[0])]
@@ -79,19 +74,16 @@ def imagine(
     states = [s]
     actions, rewards = [], []
     dhats, survivals, frames = [torch.zeros(n, device=device)], [c], [frame]
-    # All target frames of the rollout are known up front (frame + t, clamped at the clip end):
-    # gather / FK the references for every step in one batched call.
-    last = lib.last_frame_of(frame)
-    frames_all = torch.minimum(frame[None, :] + torch.arange(horizon + 1, device=device)[:, None], last[None, :])  # (H+1, n)
-    ref_all = reference_at(lib, frames_all.reshape(-1))
+    # All target steps of the rollout are known up front: gather the references in one batched call.
+    frames_all = task.targets(frame, horizon)  # (H+1, n)
+    ref_all = task.reference(frames_all.reshape(-1))
 
     def ref_at(t):
-        sl = slice(t * n, (t + 1) * n)
-        return ReferenceFrame(ref_all.body_pos_w[sl], ref_all.body_quat_w[sl], ref_all.body_lin_vel_w[sl], ref_all.body_ang_vel_w[sl], ref_all.root_pos_w[sl], ref_all.root_quat_w[sl])
+        return ref_slice(ref_all, slice(t * n, (t + 1) * n))
 
     ref = ref_at(0)
-    anchor_pose = heads.anchor_pose(s) if mode != "none" else None
-    goals = [make_goal(frame, ref, anchor_pose)]
+    aux = heads.aux(s) if task.needs_aux else None
+    goals = [task.goal(frame, ref, aux, obs_noise)]
     e_roots = [heads.critic_features(s, ref)]
     term_names = heads.reward_term_names
     term_sum = torch.zeros(len(term_names), device=device)
@@ -99,7 +91,7 @@ def imagine(
     for t in range(horizon):
         obs_flat = heads.flatten_obs_history(torch.stack(hist, 0))
         a = policy(obs_flat, goals[-1])
-        s_next, r, term_vec, logits, obs_clean, anchor_pose = step_fn(s, a, a_prev, start.xi, ref)
+        s_next, r, term_vec, logits, obs_clean, aux = step_fn(s, a, a_prev, start.xi, ref)
         d = torch.sigmoid(logits)
         c = c * (1.0 - d)
         term_sum += term_vec.detach().mean(-1)
@@ -114,7 +106,7 @@ def imagine(
         rewards.append(r)
         dhats.append(d)
         survivals.append(c)
-        goals.append(make_goal(frame, ref, anchor_pose))
+        goals.append(task.goal(frame, ref, aux, obs_noise))
         e_roots.append(heads.critic_features(s, ref))
         frames.append(frame)
 

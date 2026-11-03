@@ -7,10 +7,11 @@ from dataclasses import dataclass
 import torch
 
 from supermimic.data.replay_buffer import ReplayBuffer
-from supermimic.envs.mdp.motion_library import MotionLibrary
 from supermimic.imagination.objective import gae_targets, policy_objective
 from supermimic.imagination.rollout import ImagRollout, imagine
 from supermimic.policy.nets import Critic, Policy
+from supermimic.tasks.base import TaskBase
+from supermimic.tasks.motion_tracking import as_task
 from supermimic.training.distributed import allreduce_grads
 from supermimic.world_model.world_model import WorldModel
 
@@ -38,8 +39,12 @@ class PolicyTrainerCfg:
 
 
 class PolicyTrainer:
-    def __init__(self, wm: WorldModel, policy: Policy, critic: Critic, lib: MotionLibrary, cfg: PolicyTrainerCfg):
-        self.wm, self.policy, self.critic, self.lib, self.cfg = wm, policy, critic, lib, cfg
+    def __init__(self, wm: WorldModel, policy: Policy, critic: Critic, task: TaskBase, cfg: PolicyTrainerCfg):
+        """``task`` gives references and goals; a ``MotionLibrary`` is accepted and wrapped as motion
+        tracking with ``cfg.future_frames`` and ``cfg.anchor_obs``."""
+        self.wm, self.policy, self.critic, self.cfg = wm, policy, critic, cfg
+        self.task = as_task(task, wm.heads, cfg.future_frames, cfg.anchor_obs)
+        self.lib = getattr(self.task, "lib", None)
         self.opt = torch.optim.Adam(policy.parameters(), lr=cfg.lr, betas=cfg.betas)
         self.critic_opt = torch.optim.Adam(critic.parameters(), lr=cfg.critic_lr)
         from supermimic.imagination.compiled import ImagStep
@@ -65,7 +70,7 @@ class PolicyTrainer:
         # ---- actor: BPTT through the frozen world model ------------------------------------
         self.wm.requires_grad_(False)
         self.critic.requires_grad_(False)
-        ro = imagine(self.wm, self.policy, self.lib, start, cfg.horizon, cfg.future_frames, obs_noise=cfg.obs_noise, step_fn=self.step_fn, anchor_obs=cfg.anchor_obs)
+        ro = imagine(self.wm, self.policy, self.task, start, cfg.horizon, obs_noise=cfg.obs_noise, step_fn=self.step_fn)
         feat, goals, e_root = self._critic_inputs(ro)
         if cfg.use_critic:
             v_H = self.critic(feat[-1], goals[-1], xi_norm, e_root[-1])

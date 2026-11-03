@@ -189,7 +189,7 @@
 
 建议先做一次只改结构、不改行为的重构：把 `StateSpec` 和 `AnalyticHeads` 抽象成“机器人定义”接口，G1 作为第一个实现，加回归测试保证 G1 结果不变。然后车辆作为第二个实现接入。
 
-**进度（2026-11-03）**：`StateSpec` 和 `AnalyticHeads` 都已完成接口化。
+**进度（2026-11-03）**：`StateSpec`、`AnalyticHeads` 和任务（Task）三个接口都已完成，重置采样器也已从 G1 环境里抽出。
 
 - 状态表示：`src/supermimic/world_model/spec_base.py`（`StateSpecBase`、`StateSpecCfgBase.build`、`make_state_spec`）。`WorldModel` 按 spec 的维数构建动力学网络。
 - 解析头：`src/supermimic/world_model/heads_base.py`（`AnalyticHeadsBase`、`HeadsStep`）。约定的内容是：
@@ -205,10 +205,27 @@
   - 两个人为注入的 bug（观测用错动作、终止尺度交换）都能被这个测试抓到；
   - `tests/toy_vehicle.py` 的平面车辆（spec + heads）单靠接口跑通了世界模型损失和想象 BPTT，梯度能传回策略。
 
-仍然绑定 G1 / 动作跟踪任务的地方（下一步）：
-- **目标与参考（任务接口）**：`imagine` 里的 `lib.goal_window`、`reference_at`、锚点相对目标项，以及 `wm_trainer` 构造参考的方式，都还按动作库写。车辆需要一个“任务”接口来提供参考、目标特征和重置分布。
-- **策略网络**：`policy/nets.py` 的 `ACT_DIM=29`、按 `OBS_TERMS` 的观测缩放和按 68 维帧的目标缩放。
+- **任务接口**：`src/supermimic/tasks/base.py`（`TaskBase`），约定四件事：
+  - 任务时间怎样推进（`targets`）；
+  - 参考量（`reference`、`termination_reference`）；
+  - 策略目标（`goal`）；
+  - 是否需要解析头的辅助输出（`needs_aux`，对应 `AnalyticHeadsBase.aux`）。
+
+  动作跟踪是第一个实现（`tasks/motion_tracking.py`：`MotionTrackingTask`、`reference_at`、锚点相对目标项）。`imagine`、`WorldModelTrainer`、`PolicyTrainer` 都改为接收任务；传入动作库仍然可以，会自动包装成动作跟踪，所以原有调用不变。
+- **重置分布**：按回报重置的采样器移到 `tasks/reset_sampler.py`：
+  - `SequenceLayout`：把任务时间看成若干序列首尾相接、再切成定长的 bin。动作库是一种布局，车辆的参考轨迹集是另一种（`from_lengths`）；
+  - `ReturnBasedResetSampler`：各 bin 的回报估计、每个环境的回合记录、`gmax_mode`、截断时的 critic 自举，以及三种采样模式。
+
+  G1 环境的 `MultiClipMotionCommand` 改为委托给它，`bin_return`、`bin_memory`、`ep_len`、`bootstrap_fn` 等名字不变，检查点和脚本不受影响。
+- 验证（`tests/test_task_interface.py`）：
+  - 采样器在四种配置（按回报/const、按回报/remaining + 自举、均匀、从片段开头）下走同一段脚本化回合序列，结果与抽取前的记录逐位一致；两个注入的 bug（序列末尾差一、忽略截断）都能抓到；
+  - 显式传入 `MotionTrackingTask` 与传入动作库的结果一致；
+  - `tests/toy_vehicle.py` 的车辆任务（参考轨迹 + 预览目标）用三个接口跑通了整段 `imagine` 和 BPTT，并且在车辆的轨迹布局上，按回报的采样器会把重置集中到失败的 bin。
+
+仍然绑定 G1 的地方（下一步）：
+- **策略网络**：`policy/nets.py` 的 `ACT_DIM=29`、按 `OBS_TERMS` 的观测缩放和按 68 维帧的目标缩放。`PolicyTrainer` 因此还不能直接训练车辆策略；`imagine` 已经可以接受任意 `policy(obs, goal)`。
 - **裕度工具**：`eval/margins.py`、`adversarial.py` 里写死的 70 维和 `err_scale` 参数（应改为调用 `spec.apply_error`）。
+- **仿真环境**：车辆需要自己的环境（仿真器、回放记录、调用 `ReturnBasedResetSampler`），这就是 §6 的 E0。
 
 ---
 
@@ -255,7 +272,7 @@
 
 ## 9. 第一步具体做什么（两周内）
 
-1. 重构：`StateSpec` ✅、`AnalyticHeads` ✅（见 §5 进度）；剩下任务接口（参考、目标、重置）、策略网络维数和裕度工具，G1 回归测试通过。
+1. 重构：`StateSpec` ✅、`AnalyticHeads` ✅、任务接口与重置采样器 ✅（见 §5 进度）；剩下策略网络维数和裕度工具。
 2. 写双轨 + MF 轮胎的 GPU 仿真器，并与 CommonRoad MB 模型对拍（E0）。
 3. 生成一条赛道 × 3 个 μ 的参考，跑通 E1 的雅可比检查。**E1 的结论决定这个方向值不值得继续**：如果饱和区雅可比完全不可靠，就优先研究 §8 第一行的缓解，而不是直接上全库训练。
 

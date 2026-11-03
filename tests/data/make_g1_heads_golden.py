@@ -13,7 +13,7 @@ from pathlib import Path
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from g1_fixtures import run_all  # noqa: E402
+from g1_fixtures import run_all
 
 OUT = Path(__file__).with_name("g1_heads_golden.pt")
 
