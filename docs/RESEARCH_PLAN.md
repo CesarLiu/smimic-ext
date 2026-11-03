@@ -5,7 +5,7 @@
 > 相关文档：
 > - [RUNBOOK.md](../RUNBOOK.md)：服务器上的运行顺序
 > - [GENERALIZATION.md](GENERALIZATION.md)：held-out 与鲁棒性裕度的背景实验
-> - 两份综述：`ws_claude/ad-safety-formal-methods/` 下的 AD 与机器人形式化方法报告。本文中"AD §x"和"机器人 §x"指这两份报告的章节。
+> - 两份综述：[AD 安全形式化方法](surveys/AD_Safety_Formal_Methods_Report.md)、[机器人形式化方法](surveys/Robotics_Formal_Methods_Report.md)。本文中"AD §x"和"机器人 §x"指这两份报告的章节。
 >
 > 性质：个人学术研究，与雇主工作无关（BONES-SEED 许可要求非商业学术用途）。
 
