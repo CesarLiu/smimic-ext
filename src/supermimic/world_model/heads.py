@@ -1,5 +1,6 @@
-"""Analytic heads of the world model (plan D4): observation, reward, termination.
+"""G1 motion-tracking analytic heads of the world model (plan D4): observation, reward, termination.
 
+``AnalyticHeads`` implements ``AnalyticHeadsBase`` (``heads_base.py``, the robot-agnostic contract).
 Everything here is a pure differentiable function of the 71-d simulator state
 ``s = [qpos(36) | qvel(35)]`` (root position expressed relative to the env origin,
 see ``StateIO``), the previous clean action, the sim context ``xi`` and the
@@ -16,10 +17,24 @@ import torch
 from supermimic.envs.mdp.rewards import TrackingRewardCfg, tracking_reward_terms
 from supermimic.kinematics.g1_fk import G1Kinematics
 from supermimic.kinematics.rotations import projected_gravity, quat_apply_inverse
+from supermimic.world_model.heads_base import AnalyticHeadsBase, HeadsStep
 
 OBS_DIM = 93
 # Term layout of the ``policy`` observation group (order matters: term-major history).
 OBS_TERMS = (("joint_pos", 29), ("joint_vel", 29), ("base_ang_vel", 3), ("projected_gravity", 3), ("actions", 29))
+# Paper Table A.1 sensor noise (uniform half-widths) in the 93-d observation order.
+OBS_NOISE_HALF = torch.tensor([0.01] * 29 + [0.5] * 29 + [0.2] * 3 + [0.05] * 3 + [0.0] * 29)
+# Reward terms reported per imagined step (order of the diagnostics vector).
+REWARD_TERM_NAMES = (
+    "motion_global_root_pos",
+    "motion_global_root_ori",
+    "motion_body_pos",
+    "motion_body_ori",
+    "motion_body_lin_vel",
+    "motion_body_ang_vel",
+    "action_rate_l2",
+    "joint_limit",
+)
 
 
 def split_state(s: torch.Tensor):
@@ -77,8 +92,13 @@ class ReferenceFrame:
     root_quat_w: torch.Tensor  # (N, 4)
 
 
-class AnalyticHeads:
+class AnalyticHeads(AnalyticHeadsBase):
     """Reward / termination features computed from the predicted state through differentiable FK."""
+
+    obs_dim = OBS_DIM
+    reward_term_names = REWARD_TERM_NAMES
+    term_feat_dim = 2  # [height error, tilt error]
+    critic_feat_dim = 4  # root position error (3) + yaw error (1), see root_error_features
 
     def __init__(
         self,
@@ -97,6 +117,48 @@ class AnalyticHeads:
         self.soft_limits = soft_limits
         self.default_joint_pos = default_joint_pos
         self.reward_cfg = reward_cfg or TrackingRewardCfg()
+
+    # ------------------------------------------------------------------ AnalyticHeadsBase
+
+    @property
+    def max_step_reward(self) -> float:
+        return self.reward_cfg.max_step_reward
+
+    def observation(self, s: torch.Tensor, prev_action: torch.Tensor, xi: torch.Tensor) -> torch.Tensor:
+        return analytic_observation(s, prev_action, xi, self.default_joint_pos)
+
+    def obs_noise_half(self) -> torch.Tensor:
+        return OBS_NOISE_HALF
+
+    def flatten_obs_history(self, hist: torch.Tensor) -> torch.Tensor:
+        return flatten_history_term_major(hist)
+
+    def evaluate(self, s_next, action, prev_action, xi, ref: ReferenceFrame) -> HeadsStep:
+        """FK once; reward terms, next observation and the anchor body pose (n, 7) for anchor goals."""
+        bodies = self.robot_bodies(s_next)
+        terms = self.reward(s_next, action, prev_action, ref, bodies)
+        obs = self.observation(s_next, action, xi)
+        ai = self.anchor_index
+        anchor_pose = torch.cat([bodies["pos"][..., ai, :], bodies["quat"][..., ai, :]], dim=-1)
+        return HeadsStep(terms, obs, anchor_pose)
+
+    def state_termination_features(self, s: torch.Tensor, ref: ReferenceFrame) -> torch.Tensor:
+        # The pelvis is the free-joint body, so its pose is the state's root pose: no FK needed.
+        return self.termination_features(s[..., 0:3], s[..., 3:7], ref)
+
+    def termination_feature_scale(self, wm_cfg) -> tuple[float, ...]:
+        return (1.0 / wm_cfg.height_threshold, 1.0 / wm_cfg.tilt_threshold)
+
+    def critic_features(self, s: torch.Tensor, ref: ReferenceFrame) -> torch.Tensor:
+        return self.root_error_features(s, ref)
+
+    def anchor_pose(self, s: torch.Tensor) -> torch.Tensor:
+        """(n, 7) world pose of the anchor body (G1 anchor goals; the same quantity as ``evaluate``'s aux)."""
+        b = self.robot_bodies(s)
+        ai = self.anchor_index
+        return torch.cat([b["pos"][..., ai, :], b["quat"][..., ai, :]], dim=-1)
+
+    # ------------------------------------------------------------------ G1 helpers
 
     def robot_bodies(self, s: torch.Tensor) -> dict[str, torch.Tensor]:
         out = self.fk(s[..., :36], s[..., 36:])

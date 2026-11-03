@@ -1,4 +1,6 @@
-"""World model: learned dynamics + learned termination head + analytic observation/reward heads."""
+"""World model: learned dynamics + learned termination head + analytic observation/reward heads.
+
+Robot-specific parts come from the state spec (``spec_base.py``) and the analytic heads (``heads_base.py``)."""
 
 from __future__ import annotations
 
@@ -9,7 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from supermimic.world_model.dynamics import MLP, DynamicsMLP
-from supermimic.world_model.heads import AnalyticHeads, ReferenceFrame
+from supermimic.world_model.heads_base import AnalyticHeadsBase, ref_from_tensors, ref_tensors
 from supermimic.world_model.spec_base import make_state_spec
 from supermimic.world_model.state_spec import StateSpecCfg
 
@@ -21,6 +23,7 @@ class WorldModelCfg:
     # Any StateSpecCfgBase works here; the annotation names the G1 config for the tyro CLI.
     state_spec: StateSpecCfg = field(default_factory=StateSpecCfg)
     term_loss_weight: float = 1.0
+    # G1 termination thresholds (scale of the termination features, see heads.termination_feature_scale).
     height_threshold: float = 0.25
     tilt_threshold: float = 0.8
 
@@ -28,25 +31,28 @@ class WorldModelCfg:
 class TerminationHead(nn.Module):
     """P(terminal | state, reference). Input: analytic termination features and their magnitudes."""
 
-    def __init__(self, hidden=(64, 64), height_thr: float = 0.25, tilt_thr: float = 0.8):
+    def __init__(self, scale: tuple[float, ...], hidden=(64, 64)):
         super().__init__()
-        self.mlp = MLP(4, tuple(hidden), 1)
-        self.register_buffer("scale", torch.tensor([1.0 / height_thr, 1.0 / tilt_thr]))
+        self.mlp = MLP(2 * len(scale), tuple(hidden), 1)
+        self.register_buffer("scale", torch.tensor([float(x) for x in scale]))
 
     def forward(self, feats: torch.Tensor) -> torch.Tensor:
-        """feats (…, 2) = [height error, tilt error] -> logits (…,)"""
+        """feats (…, F) (G1: [height error, tilt error]) -> logits (…,)"""
         x = feats * self.scale
         return self.mlp(torch.cat([x, x.abs()], dim=-1)).squeeze(-1)
 
 
 class WorldModel(nn.Module):
-    def __init__(self, cfg: WorldModelCfg, heads: AnalyticHeads, device):
+    def __init__(self, cfg: WorldModelCfg, heads: AnalyticHeadsBase | None, device):
+        """``heads=None`` gives a dynamics-only model (``step``, ``rollout_error``); its termination
+        head then has the G1 layout."""
         super().__init__()
         self.cfg = cfg
         self.spec = make_state_spec(cfg.state_spec, device)
         sp = self.spec
         self.dynamics = DynamicsMLP(feat_dim=sp.feat_dim, act_dim=sp.action_dim, xi_dim=sp.xi_dim, hidden=cfg.hidden, out_dim=sp.delta_dim)
-        self.term_head = TerminationHead(cfg.term_hidden, cfg.height_threshold, cfg.tilt_threshold)
+        term_scale = heads.termination_feature_scale(cfg) if heads is not None else (1.0 / cfg.height_threshold, 1.0 / cfg.tilt_threshold)
+        self.term_head = TerminationHead(term_scale, cfg.term_hidden)
         self.heads = heads  # analytic observation / reward / FK (no parameters)
         self.to(device)
 
@@ -58,32 +64,31 @@ class WorldModel(nn.Module):
         delta = self.dynamics(feat, action, self.spec.normalize_xi(xi))
         return self.spec.integrate(s, delta)
 
-    def termination_logits(self, s_next: torch.Tensor, ref: ReferenceFrame) -> torch.Tensor:
-        # The pelvis is the free-joint body, so its pose is the state's root pose: no FK needed.
-        feats = self.heads.termination_features(s_next[..., 0:3], s_next[..., 3:7], ref)
-        return self.term_head(feats)
+    def termination_logits(self, s_next: torch.Tensor, ref) -> torch.Tensor:
+        return self.term_head(self.heads.state_termination_features(s_next, ref))
 
     # ------------------------------------------------------------------ Eq. 1
 
-    def _loss_step(self, s, a, xi, s_true, done, ref_root_pos, ref_root_quat):
-        """One autoregressive step of Eq. 1: returns (s_next, sq_err (n, err_dim), term_bce (n,), logits (n,))."""
+    def _loss_step(self, s, a, xi, s_true, done, *ref_fields):
+        """One autoregressive step of Eq. 1: returns (s_next, sq_err (n, err_dim), term_bce (n,), logits (n,)).
+
+        ``ref_fields`` is the reference dataclass flattened by ``ref_tensors`` (tensors only, for compile)."""
         s_next = self.step(s, a, xi)
         e = self.spec.error_vector(s_next, s_true)
-        feats = self.heads.termination_features(s_next[..., 0:3], s_next[..., 3:7], ReferenceFrame(None, None, None, None, ref_root_pos, ref_root_quat))
-        logits = self.term_head(feats)
+        logits = self.termination_logits(s_next, ref_from_tensors(self._ref_cls, ref_fields))
         bce = F.binary_cross_entropy_with_logits(logits, done, reduction="none")
         return s_next, e * e, bce, logits
 
     def enable_compile(self, mode: str | None = "default") -> None:
         self._loss_step_fn = torch.compile(self._loss_step, mode=None if mode == "default" else mode, dynamic=False) if mode else self._loss_step
 
-    def window_loss(self, states: torch.Tensor, a_exec: torch.Tensor, xi: torch.Tensor, done: torch.Tensor, refs: list[ReferenceFrame]):
+    def window_loss(self, states: torch.Tensor, a_exec: torch.Tensor, xi: torch.Tensor, done: torch.Tensor, refs: list):
         """k-step autoregressive loss.
 
         states: (k+1, n, state_dim) logged states; a_exec: (k, n, action_dim); xi: (n, xi_dim)
         (G1: 71, 29, 33);
         done: (k, n) termination label of states 1..k; refs[j]: reference of transition j (for the
-        termination features of state j+1).
+        termination features of state j+1). Fields the heads' termination features do not read may be None.
         """
         k = a_exec.shape[0]
         s = states[0]
@@ -94,8 +99,9 @@ class WorldModel(nn.Module):
         err_last = None
         acc_num = 0.0
         step_fn = getattr(self, "_loss_step_fn", None) or self._loss_step
+        self._ref_cls = type(refs[0])
         for j in range(k):
-            s, sq, bce, logits = step_fn(s, a_exec[j], xi, states[j + 1], done[j], refs[j].root_pos_w, refs[j].root_quat_w)
+            s, sq, bce, logits = step_fn(s, a_exec[j], xi, states[j + 1], done[j], *ref_tensors(refs[j]))
             total_state = total_state + sq.sum(-1).mean()
             total_term = total_term + bce.mean()
             with torch.no_grad():

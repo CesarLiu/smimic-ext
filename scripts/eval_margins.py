@@ -134,7 +134,7 @@ def main(
         if kind == "adv":
             wm.requires_grad_(False)
             policy.requires_grad_(False)
-            step_fn = ImagStep(wm, lib.default_joint_pos)
+            step_fn = ImagStep(wm)
             disc = float(pt.get("gamma", 0.99)) ** torch.arange(adv_h, device=device, dtype=torch.float32)
             hist_len = env_args.history_length
 

@@ -96,7 +96,7 @@ class Trainer:
         # Episode statistics of the training env (paper's "training return").
         self.ep_reward_sum = torch.zeros(env.num_envs, device=self.device)
         self.ep_len = torch.zeros(env.num_envs, device=self.device)
-        self.max_step_reward = heads.reward_cfg.max_step_reward
+        self.max_step_reward = heads.max_step_reward
         self.iteration = 0
         self.start_iteration = 0  # warm-up (buffer refill) counts from here, also after a resume
         self.num_updates = 0

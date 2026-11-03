@@ -44,7 +44,7 @@ class PolicyTrainer:
         self.critic_opt = torch.optim.Adam(critic.parameters(), lr=cfg.critic_lr)
         from supermimic.imagination.compiled import ImagStep
 
-        self.step_fn = ImagStep(wm, lib.default_joint_pos, compile_mode=cfg.compile)
+        self.step_fn = ImagStep(wm, compile_mode=cfg.compile)
 
     def set_lr(self, lr: float) -> None:
         for g in self.opt.param_groups:
@@ -105,7 +105,7 @@ class PolicyTrainer:
                 X_feat = feat_d[:-1].reshape(-1, feat_d.shape[-1])
                 X_goal = goals_d[:-1].reshape(-1, goals_d.shape[-1])
                 X_xi = xi_rep[:-1].reshape(-1, xi_rep.shape[-1])
-                X_er = e_root_d[:-1].reshape(-1, 4)
+                X_er = e_root_d[:-1].reshape(-1, e_root_d.shape[-1])
                 Y = targets.reshape(-1)
             N = Y.shape[0]
             mb = N // cfg.critic_minibatches

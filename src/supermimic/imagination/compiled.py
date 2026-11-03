@@ -1,51 +1,41 @@
 """One imagined step as a single compiled function (plan 3.6: launch-overhead control).
 
-``ImagStep`` bundles world-model dynamics, analytic FK reward, termination logits and the
-next noise-free observation into one call so ``torch.compile`` can fuse the hundreds of
-small kernels of the per-body FK loop. Reference quantities are passed as plain tensors
-(already gathered from the motion library) so the compiled graph has static shapes.
+``ImagStep`` bundles world-model dynamics, the analytic heads (reward, next noise-free observation,
+auxiliary goal-side output) and the termination logits into one call so ``torch.compile`` can fuse
+the hundreds of small kernels of the per-body FK loop. The reference is passed as the flat tuple of
+its dataclass fields (already gathered from the motion library) so the compiled graph has static
+shapes and sees only tensors.
 """
 
 from __future__ import annotations
 
 import torch
 
-from supermimic.world_model.heads import ReferenceFrame, analytic_observation
+from supermimic.world_model.heads import REWARD_TERM_NAMES  # noqa: F401  (re-exported, G1 order)
+from supermimic.world_model.heads_base import ref_from_tensors, ref_tensors
 from supermimic.world_model.world_model import WorldModel
-
-REWARD_TERM_NAMES = (
-    "motion_global_root_pos",
-    "motion_global_root_ori",
-    "motion_body_pos",
-    "motion_body_ori",
-    "motion_body_lin_vel",
-    "motion_body_ang_vel",
-    "action_rate_l2",
-    "joint_limit",
-)
 
 
 class ImagStep:
-    def __init__(self, wm: WorldModel, default_joint_pos: torch.Tensor, compile_mode: str | None = None):
+    def __init__(self, wm: WorldModel, compile_mode: str | None = None):
         self.wm = wm
-        self.q0 = default_joint_pos
+        self.term_names = wm.heads.reward_term_names
+        self._ref_cls = None
         self._fn = self._step
         if compile_mode:
             mode = None if compile_mode == "default" else compile_mode
             self._fn = torch.compile(self._step, mode=mode, dynamic=False)
 
-    def _step(self, s, a, a_prev, xi, ref_body_pos, ref_body_quat, ref_body_lin, ref_body_ang, ref_root_pos, ref_root_quat):
-        ref = ReferenceFrame(ref_body_pos, ref_body_quat, ref_body_lin, ref_body_ang, ref_root_pos, ref_root_quat)
+    def _step(self, s, a, a_prev, xi, *ref_fields):
+        ref = ref_from_tensors(self._ref_cls, ref_fields)
         s_next = self.wm.step(s, a, xi)
-        bodies = self.wm.heads.robot_bodies(s_next)
-        terms = self.wm.heads.reward(s_next, a, a_prev, ref, bodies)
-        r = terms["total"]
-        term_vec = torch.stack([terms[k] for k in REWARD_TERM_NAMES], dim=0)  # (8, n)
+        out = self.wm.heads.evaluate(s_next, a, a_prev, xi, ref)
+        terms = out.reward_terms
+        term_vec = torch.stack([terms[k] for k in self.term_names], dim=0)  # (n_terms, n)
         logits = self.wm.termination_logits(s_next, ref)
-        obs_clean = analytic_observation(s_next, a, xi, self.q0)
-        ai = self.wm.heads.anchor_index
-        anchor_pose = torch.cat([bodies["pos"][..., ai, :], bodies["quat"][..., ai, :]], dim=-1)  # (n, 7)
-        return s_next, r, term_vec, logits, obs_clean, anchor_pose
+        return s_next, terms["total"], term_vec, logits, out.obs, out.aux
 
-    def __call__(self, s, a, a_prev, xi, ref: ReferenceFrame):
-        return self._fn(s, a, a_prev, xi, ref.body_pos_w, ref.body_quat_w, ref.body_lin_vel_w, ref.body_ang_vel_w, ref.root_pos_w, ref.root_quat_w)
+    def __call__(self, s, a, a_prev, xi, ref):
+        """-> s_next, reward, reward-term vector, termination logits, next clean obs, aux (or None)."""
+        self._ref_cls = type(ref)
+        return self._fn(s, a, a_prev, xi, *ref_tensors(ref))

@@ -189,15 +189,26 @@
 
 建议先做一次只改结构、不改行为的重构：把 `StateSpec` 和 `AnalyticHeads` 抽象成“机器人定义”接口，G1 作为第一个实现，加回归测试保证 G1 结果不变。然后车辆作为第二个实现接入。
 
-**进度（2026-11-03）**：`StateSpec` 已完成接口化。
-- 接口在 `src/supermimic/world_model/spec_base.py`：`StateSpecBase`、`StateSpecCfgBase.build`、`make_state_spec`；
-- G1 是第一个实现；`WorldModel` 按 spec 的维数构建动力学网络；
-- `tests/test_state_spec_interface.py` 验证了三件事：G1 的输出与重构前记录值逐位一致；接口约定；一个最小平面车辆 spec 能单靠接口驱动世界模型。
+**进度（2026-11-03）**：`StateSpec` 和 `AnalyticHeads` 都已完成接口化。
 
-仍然绑定 G1 的地方（下一步）：
-- `WorldModel` 里终止特征的状态切片和 `TerminationHead`（属于 `AnalyticHeads`）；
-- `imagination/rollout.py` 的观测噪声表和观测历史布局；
-- `eval/margins.py`、`adversarial.py` 里写死的 70 维和 `err_scale` 参数（应改为调用 `spec.apply_error`）。
+- 状态表示：`src/supermimic/world_model/spec_base.py`（`StateSpecBase`、`StateSpecCfgBase.build`、`make_state_spec`）。`WorldModel` 按 spec 的维数构建动力学网络。
+- 解析头：`src/supermimic/world_model/heads_base.py`（`AnalyticHeadsBase`、`HeadsStep`）。约定的内容是：
+  - 观测、观测噪声和历史布局；
+  - 一步内合并计算的奖励、下一观测和辅助输出（`evaluate`）；
+  - 终止特征及其尺度；
+  - critic 特征；
+  - 每步最大奖励。
+
+  `WorldModel` 的终止头、k 步损失、`ImagStep`、`imagine` 中与机器人相关的部分，以及 `PolicyTrainer` 的 critic 特征维数，都改为经接口取得。参考量作为 dataclass 展平后传入编译函数。
+- G1 是两个接口的第一个实现。验证：
+  - `tests/test_state_spec_interface.py`、`tests/test_heads_interface.py` 把“奖励 → 观测 → 终止 → 世界模型 k 步损失 → 想象一步 → 整段想象 rollout → 一次策略加 critic 更新”整条链与重构前的记录值比较，在记录机器上完全一致；
+  - 两个人为注入的 bug（观测用错动作、终止尺度交换）都能被这个测试抓到；
+  - `tests/toy_vehicle.py` 的平面车辆（spec + heads）单靠接口跑通了世界模型损失和想象 BPTT，梯度能传回策略。
+
+仍然绑定 G1 / 动作跟踪任务的地方（下一步）：
+- **目标与参考（任务接口）**：`imagine` 里的 `lib.goal_window`、`reference_at`、锚点相对目标项，以及 `wm_trainer` 构造参考的方式，都还按动作库写。车辆需要一个“任务”接口来提供参考、目标特征和重置分布。
+- **策略网络**：`policy/nets.py` 的 `ACT_DIM=29`、按 `OBS_TERMS` 的观测缩放和按 68 维帧的目标缩放。
+- **裕度工具**：`eval/margins.py`、`adversarial.py` 里写死的 70 维和 `err_scale` 参数（应改为调用 `spec.apply_error`）。
 
 ---
 
@@ -244,7 +255,7 @@
 
 ## 9. 第一步具体做什么（两周内）
 
-1. 重构：`StateSpec` 接口化 ✅（见 §5 进度）；`AnalyticHeads`、想象 rollout 和裕度工具接口化，G1 回归测试通过。
+1. 重构：`StateSpec` ✅、`AnalyticHeads` ✅（见 §5 进度）；剩下任务接口（参考、目标、重置）、策略网络维数和裕度工具，G1 回归测试通过。
 2. 写双轨 + MF 轮胎的 GPU 仿真器，并与 CommonRoad MB 模型对拍（E0）。
 3. 生成一条赛道 × 3 个 μ 的参考，跑通 E1 的雅可比检查。**E1 的结论决定这个方向值不值得继续**：如果饱和区雅可比完全不可靠，就优先研究 §8 第一行的缓解，而不是直接上全库训练。
 

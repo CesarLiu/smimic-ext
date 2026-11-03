@@ -83,13 +83,15 @@ class Policy(nn.Module):
 
 
 class Critic(nn.Module):
-    """V(canonical state 71, goal 680, xi 33, root error 4) -> scalar (one per interface)."""
+    """V(canonical state 71, goal 680, xi 33, root error 4) -> scalar (one per interface).
 
-    def __init__(self, cfg: CriticCfg, feat_dim: int = 71, goal_dim: int | None = None, xi_dim: int = 33, pcfg: PolicyCfg | None = None):
+    ``e_root_dim`` is the heads' ``critic_feat_dim`` (G1: 4)."""
+
+    def __init__(self, cfg: CriticCfg, feat_dim: int = 71, goal_dim: int | None = None, xi_dim: int = 33, pcfg: PolicyCfg | None = None, e_root_dim: int = 4):
         super().__init__()
         pcfg = pcfg or PolicyCfg()
         goal_dim = goal_dim or pcfg.goal_dim
-        self.mlp = MLP(feat_dim + goal_dim + xi_dim + 4, cfg.hidden, 1)
+        self.mlp = MLP(feat_dim + goal_dim + xi_dim + e_root_dim, cfg.hidden, 1)
         self.register_buffer("goal_scale", _goal_scale_vector(pcfg, goal_dim))
 
     def forward(self, feat: torch.Tensor, goal: torch.Tensor, xi_norm: torch.Tensor, e_root: torch.Tensor) -> torch.Tensor:

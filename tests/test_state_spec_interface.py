@@ -1,69 +1,23 @@
 """StateSpec interface: G1 regression against recorded outputs, the contract every spec must meet,
-and a second (planar vehicle) spec that drives the world model through the interface alone."""
+and a second (planar vehicle, ``toy_vehicle.py``) spec that drives the world model through the
+interface alone."""
 
 from __future__ import annotations
 
 import math
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
 import torch
+from toy_vehicle import PlanarVehicleSpecCfg, vehicle_states
 
 from supermimic.eval.perturb import apply_state_delta, component_mask
-from supermimic.world_model.spec_base import StateSpecBase, StateSpecCfgBase, make_state_spec
+from supermimic.world_model.spec_base import StateSpecBase, make_state_spec
 from supermimic.world_model.state_spec import StateSpec, StateSpecCfg
 from supermimic.world_model.world_model import WorldModel, WorldModelCfg
 
 GOLDEN = Path(__file__).parent / "data" / "g1_state_spec_golden.pt"
-
-
-# ---------------------------------------------------------------------- a second spec
-
-
-@dataclass
-class PlanarVehicleSpecCfg(StateSpecCfgBase):
-    """Minimal planar vehicle: s = [x, y, psi, vx_body, vy_body, yaw_rate]; a = [steer, accel]; xi = [mu]."""
-
-    dt: float = 0.02
-    out_scale: float = 0.5
-    err_scale: tuple[float, ...] = (0.1, 0.1, 0.05, 0.5, 0.5, 0.2)
-
-    def build(self, device, dtype=torch.float32) -> PlanarVehicleSpec:
-        return PlanarVehicleSpec(self, device, dtype)
-
-
-class PlanarVehicleSpec(StateSpecBase):
-    state_dim, feat_dim, delta_dim, err_dim, action_dim, xi_dim = 6, 3, 3, 6, 2, 1
-
-    def __init__(self, cfg: PlanarVehicleSpecCfg, device, dtype=torch.float32):
-        self.cfg, self.dt = cfg, cfg.dt
-        self.err_scale = torch.tensor(cfg.err_scale, device=device, dtype=dtype)
-
-    def canonical(self, s):
-        return s[..., 3:6]  # pose-invariant: body-frame velocities only
-
-    def normalize_xi(self, xi):
-        return (xi - 0.75) / 0.45
-
-    def integrate(self, s, delta):
-        v = s[..., 3:6] + self.cfg.out_scale * delta
-        psi = s[..., 2] + self.dt * v[..., 2]
-        c, sn = torch.cos(psi), torch.sin(psi)
-        x = s[..., 0] + self.dt * (c * v[..., 0] - sn * v[..., 1])
-        y = s[..., 1] + self.dt * (sn * v[..., 0] + c * v[..., 1])
-        return torch.cat([torch.stack([x, y, psi], -1), v], -1)
-
-    def error_vector(self, s_pred, s_true):
-        d = s_pred - s_true
-        dpsi = torch.atan2(torch.sin(d[..., 2]), torch.cos(d[..., 2]))
-        return torch.cat([d[..., 0:2], dpsi[..., None], d[..., 3:6]], -1) / self.err_scale
-
-    def apply_error(self, s, err, limits=None):
-        return s + err * self.err_scale
-
-    def error_groups(self):
-        return {"pos": [0, 1, 2], "vel": [3, 4, 5]}
 
 
 def _g1_states(n, dtype, seed=0):
@@ -73,14 +27,9 @@ def _g1_states(n, dtype, seed=0):
     return s
 
 
-def _vehicle_states(n, dtype, seed=0):
-    g = torch.Generator().manual_seed(seed)
-    return torch.randn(n, 6, generator=g, dtype=dtype)
-
-
 SPECS = {
     "g1": (StateSpecCfg(), _g1_states),
-    "planar_vehicle": (PlanarVehicleSpecCfg(), _vehicle_states),
+    "planar_vehicle": (PlanarVehicleSpecCfg(), vehicle_states),
 }
 
 
@@ -188,7 +137,8 @@ def test_g1_world_model_matches_recorded_step_and_checkpoint_layout(golden):
     wm.load_state_dict(ref["state_dict"])
     with torch.no_grad():
         nxt = wm.step(x["s"].float(), x["action"].float(), x["xi"].float())
-    torch.testing.assert_close(nxt, ref["step"], atol=0, rtol=0)
+    # float32 matmuls: exact on the recording machine, a small tolerance for other BLAS builds.
+    torch.testing.assert_close(nxt, ref["step"], atol=1e-6, rtol=1e-5)
 
 
 def test_g1_masks_and_config_unchanged():

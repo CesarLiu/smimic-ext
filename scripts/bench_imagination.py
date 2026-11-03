@@ -47,7 +47,7 @@ def main(batch: int = 2048, horizon: int = 32, modes: tuple[str, ...] = ("eager"
         hist_actions=torch.zeros(10, batch, 29, device=dev),
     )
     for mode in modes:
-        step_fn = ImagStep(wm, q0, compile_mode=None if mode == "eager" else mode)
+        step_fn = ImagStep(wm, compile_mode=None if mode == "eager" else mode)
         wm.requires_grad_(False)
         times = []
         for i in range(reps + 1):
