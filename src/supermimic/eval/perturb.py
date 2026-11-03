@@ -14,6 +14,7 @@ import math
 import numpy as np
 import torch
 
+from supermimic.world_model.spec_base import StateSpecBase
 from supermimic.world_model.state_spec import ERR_DIM, ERR_POS, ERR_VEL, g1_apply_error
 
 # Kept for existing imports; the groups are defined by the G1 state spec.
@@ -44,6 +45,17 @@ def apply_state_delta(s: torch.Tensor, delta: torch.Tensor, err_scale: torch.Ten
     Robot-agnostic code should call ``spec.apply_error(s, delta, limits)`` instead.
     """
     return g1_apply_error(s, delta, err_scale, joint_limits)
+
+
+def perturb_state(s: torch.Tensor, delta: torch.Tensor, spec, limits: torch.Tensor | None = None) -> torch.Tensor:
+    """State s' with ``error_vector(s', s) == delta`` (normalised error units).
+
+    ``spec`` is the robot's ``StateSpecBase``; the G1 ``err_scale`` tensor is still accepted (the
+    previous call style). ``limits`` clamps what the spec clamps (G1: joint angles).
+    """
+    if isinstance(spec, StateSpecBase):
+        return spec.apply_error(s, delta, limits)
+    return g1_apply_error(s, delta, spec, limits)
 
 
 def random_directions(n: int, dim: int, mask: torch.Tensor | None = None, seed: int = 0) -> torch.Tensor:

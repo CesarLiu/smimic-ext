@@ -20,7 +20,7 @@ import math
 import numpy as np
 import torch
 
-from supermimic.eval.perturb import apply_state_delta
+from supermimic.eval.perturb import perturb_state
 
 # One-step drift levels counted per synced env-step (normalised units): "typical" drift should stay below
 # DRIFT_TOL; above DRIFT_EVENT (the smallest state perturbation) it could stand in for a perturbation.
@@ -36,20 +36,24 @@ def branch_times(length: int, first: int, every: int, window: int, max_times: in
     return times
 
 
-def run_branch_pass(env, cmd, io, policy, wm, xi, clip, times, chunk, kind, scales, dirs, mask, err_scale, limits, window, action_steps, wm_k, adv_fn=None, adv_dirs=None, drift_counts=None):
+def run_branch_pass(env, cmd, io, policy, wm, xi, clip, times, chunk, kind, scales, dirs, mask, spec, limits, window, action_steps, wm_k, adv_fn=None, adv_dirs=None, drift_counts=None):
     """One synchronous play of ``clip`` with the branches in ``chunk`` ((time idx, dir idx, scale idx) per env 1..).
+
+    ``mask`` (err_dim,) selects the perturbed error components; ``spec`` is the robot's ``StateSpecBase``
+    (or the G1 ``err_scale`` tensor) and turns error-space perturbations into states.
 
     ``drift_counts`` ({"env_steps", "over_tol", "events"}, optional) accumulates the synced env-steps and
     how many of them drifted by more than DRIFT_TOL / DRIFT_EVENT.
 
     ``kind == "adv"``: ``adv_fn(step, hist_states, hist_actions)`` gives the unit direction at a branch time
     from the nominal history (states up to and including ``step``, actions before it). Directions are cached
-    in ``adv_dirs`` ({step: (70,)}), which the caller shares across the passes of one clip.
+    in ``adv_dirs`` ({step: (err_dim,)}), which the caller shares across the passes of one clip.
 
     Returns ([(valid, failed, steps from branch to failure or -1)] per spec, {t: wm error norm}, drift,
     nominal fail step).
     """
     n, dev = env.num_envs, env.device
+    err_dim = mask.numel()
     branch_t = torch.full((n,), -1, dtype=torch.long, device=dev)
     scale = torch.zeros(n, device=dev)
     dir_idx = torch.zeros(n, dtype=torch.long, device=dev)
@@ -97,13 +101,13 @@ def run_branch_pass(env, cmd, io, policy, wm, xi, clip, times, chunk, kind, scal
                 d = delta[ids]
             elif kind == "wm":  # the model's own error direction and size at this state, scaled
                 e = wm_err.get(step)
-                d = scale[ids, None] * (e[None] if e is not None else torch.full((1, 70), float("nan"), device=dev))
+                d = scale[ids, None] * (e[None] if e is not None else torch.full((1, err_dim), float("nan"), device=dev))
             else:  # adv: the model's steepest-descent direction of the imagined return at this state
                 if step not in adv_dirs:
-                    adv_dirs[step] = adv_fn(step, hist_s, hist_a) if nominal else torch.full((70,), float("nan"), device=dev)
+                    adv_dirs[step] = adv_fn(step, hist_s, hist_a) if nominal else torch.full((err_dim,), float("nan"), device=dev)
                 d = scale[ids, None] * adv_dirs[step][None]
             if torch.isfinite(d).all():
-                io.write(ids, apply_state_delta(s[0:1].expand(ids.numel(), -1), d, err_scale, limits))
+                io.write(ids, perturb_state(s[0:1].expand(ids.numel(), -1), d, spec, limits))
         act = policy(obs["policy"], obs["goal"])
         if same is not None and same.any():  # their observations predate the copy: act as the control does
             act = torch.where(same[:, None], act[0:1], act)

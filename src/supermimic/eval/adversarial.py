@@ -18,18 +18,19 @@ import math
 
 import torch
 
-from supermimic.eval.perturb import apply_state_delta
+from supermimic.eval.perturb import perturb_state
 
 
-def worst_case_direction(objective, s: torch.Tensor, mask: torch.Tensor, err_scale: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+def worst_case_direction(objective, s: torch.Tensor, mask: torch.Tensor, spec) -> tuple[torch.Tensor, torch.Tensor]:
     """Unit direction (normalised error space, inside ``mask``) of steepest decrease of ``objective`` at s.
 
-    s (n, 71). Returns (directions (n, 70), gradient norms (n,)). The first-order direction at zero
-    perturbation; a zero gradient (flat objective) gives a zero direction, which callers treat as invalid.
+    s (n, state_dim); ``spec`` is the robot's ``StateSpecBase`` (or the G1 ``err_scale`` tensor). Returns
+    (directions (n, err_dim), gradient norms (n,)). The first-order direction at zero perturbation; a zero
+    gradient (flat objective) gives a zero direction, which callers treat as invalid.
     """
     with torch.enable_grad():
         delta = torch.zeros(s.shape[0], mask.numel(), device=s.device, dtype=s.dtype, requires_grad=True)
-        J = objective(apply_state_delta(s.detach(), delta * mask, err_scale))
+        J = objective(perturb_state(s.detach(), delta * mask, spec))
         (g,) = torch.autograd.grad(J.sum(), delta)
     g = -torch.nan_to_num(g) * mask
     norm = g.norm(dim=-1)
@@ -37,15 +38,15 @@ def worst_case_direction(objective, s: torch.Tensor, mask: torch.Tensor, err_sca
 
 
 @torch.no_grad()
-def predicted_margin(fails, s: torch.Tensor, direction: torch.Tensor, scales, err_scale: torch.Tensor, joint_limits: torch.Tensor | None = None) -> torch.Tensor:
+def predicted_margin(fails, s: torch.Tensor, direction: torch.Tensor, scales, spec, joint_limits: torch.Tensor | None = None) -> torch.Tensor:
     """The model's own margin: smallest of ``scales`` (ascending) at which ``fails`` fires along ``direction``.
 
-    s (n, 71), direction (n, 70). All n * len(scales) start states go through ``fails`` in one batch.
-    Returns (n,) floats, inf where no scale fails.
+    s (n, state_dim), direction (n, err_dim); ``spec`` as in ``worst_case_direction``. All n * len(scales)
+    start states go through ``fails`` in one batch. Returns (n,) floats, inf where no scale fails.
     """
     n, k = s.shape[0], len(scales)
     sc = torch.as_tensor(scales, device=s.device, dtype=s.dtype)
-    starts = apply_state_delta(s.repeat_interleave(k, 0), direction.repeat_interleave(k, 0) * sc.repeat(n)[:, None], err_scale, joint_limits)
+    starts = perturb_state(s.repeat_interleave(k, 0), direction.repeat_interleave(k, 0) * sc.repeat(n)[:, None], spec, joint_limits)
     f = fails(starts).reshape(n, k)
     first = torch.where(f.any(-1), f.float().argmax(-1), torch.full((n,), k - 1, device=s.device))
     return torch.where(f.any(-1), sc[first], torch.full((n,), math.inf, device=s.device, dtype=s.dtype))

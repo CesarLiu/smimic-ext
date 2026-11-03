@@ -127,7 +127,7 @@ def main(
         xi = SimContext(env, FOOT_GEOM_REGEX).read()[0]  # benchmark protocol: the same in every env
         wm = load_world_model_from_checkpoint(ckpt, env, device)
         limits = env.scene["robot"].data.soft_joint_pos_limits[0]
-        mask = component_mask(components, device)
+        mask = component_mask(components, device, spec=wm.spec)
         n_dirs = 1 if kind in ("wm", "adv") else num_dirs
         pt = cfg.get("policy_trainer", {})
         adv_h = adv_horizon or int(pt.get("horizon", 32))
@@ -160,17 +160,17 @@ def main(
                         return rollout_from(st, ci, step, hist_s, hist_a).survival[-1] < 0.5
 
                     s = hist_s[step][None]
-                    d, gn = worst_case_direction(objective, s, mask, wm.spec.err_scale)
-                    pm = predicted_margin(fails, s, d, [x for x in scales if x > 0], wm.spec.err_scale, limits)
+                    d, gn = worst_case_direction(objective, s, mask, wm.spec)
+                    pm = predicted_margin(fails, s, d, [x for x in scales if x > 0], wm.spec, limits)
                     info[step] = {"grad_norm": float(gn[0]), "model_margin": float(pm[0])}
                     return d[0] if gn[0] > 0 else torch.full_like(d[0], float("nan"))
 
                 return adv_fn
         dirs = None
         if kind == "state":
-            dirs = random_directions(num_dirs, 70, mask, seed).to(device)
+            dirs = random_directions(num_dirs, wm.spec.err_dim, mask, seed).to(device)
         elif kind == "action":
-            dirs = random_directions(num_dirs, 29, None, seed).to(device)
+            dirs = random_directions(num_dirs, wm.spec.action_dim, None, seed).to(device)
         cat_of: dict[str, str] = {}
         if categories is not None:
             with open(categories) as f:
@@ -197,7 +197,7 @@ def main(
             nominal_fail = -1
             for start in range(0, len(specs), num_envs - 1):
                 chunk = specs[start : start + num_envs - 1]
-                res, en, drift, nf = run_branch_pass(env, cmd, io, policy, wm, xi, ci, times, chunk, kind, scales, dirs, mask, wm.spec.err_scale, limits, window, action_steps, wm_k, adv_fn, adv_dirs, drift_counts)
+                res, en, drift, nf = run_branch_pass(env, cmd, io, policy, wm, xi, ci, times, chunk, kind, scales, dirs, mask, wm.spec, limits, window, action_steps, wm_k, adv_fn, adv_dirs, drift_counts)
                 err_norm.update(en)
                 max_drift = max(max_drift, drift)
                 nominal_fail = nf
