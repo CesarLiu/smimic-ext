@@ -5,10 +5,12 @@
 #   bash scripts/run_experiments.sh prepare               # RUNBOOK 3: BONES-SEED download / convert / filter, then --inspect-only
 #   # RUNBOOK 4 by hand: choose the category column and held-out categories, run make_split.py --out data/splits/g1
 #   bash scripts/run_experiments.sh main data/splits/g1   # RUNBOOK 5-6: train, evaluate, report, margins, margin checks
+#   RUN=lafan_cat NPZ=data/npz/lafan1 bash scripts/run_experiments.sh main data/splits/lafan_cat   # same on a LAFAN1 split
 #
 # Every step skips work whose output already exists, so rerunning the same command resumes after an
 # interruption (delete an output to redo that step). The script stops at the first failed command or check.
 # Settings (environment variables): RUN=g1 LAFAN_HOURS=1.5 MAIN_HOURS=4 NUM_ENVS=4096 BATCH=4096 WORKERS=20
+#   NPZ=data/npz/bones_seed (main: clips of the split; BONES-SEED is packed into a library, other sets train from the npz)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -18,6 +20,7 @@ MAIN_HOURS=${MAIN_HOURS:-4}
 NUM_ENVS=${NUM_ENVS:-4096}
 BATCH=${BATCH:-4096}
 WORKERS=${WORKERS:-20}
+NPZ=${NPZ:-data/npz/bones_seed}
 PY=(env -u PYTHONPATH uv run python)
 TRAIN=(env -u PYTHONPATH uv run sm-train)
 BONES=data/raw/bones_seed
@@ -84,8 +87,14 @@ validate() {
   [ -f "$dir/margins_ckpt_latest.json" ] || launch "$dir/eval_margins.log" "${PY[@]}" scripts/eval_margins.py --ckpt "$ck" --npz-dir data/npz/lafan1 --max-clips 4 --max-times 8 --out "$dir/margins_ckpt_latest.json"
   [ -f "$dir/margins_adv_ckpt_latest.json" ] || launch "$dir/eval_margins_adv.log" "${PY[@]}" scripts/eval_margins.py --ckpt "$ck" --npz-dir data/npz/lafan1 --max-clips 4 --max-times 8 --kind adv --out "$dir/margins_adv_ckpt_latest.json"
   wait_all || die "an evaluation failed"
+  log "margin retest: the same runs with a shuffled branch-to-env assignment (parallel)"
+  [ -f "$dir/margins_rt_ckpt_latest.json" ] || launch "$dir/eval_margins_rt.log" "${PY[@]}" scripts/eval_margins.py --ckpt "$ck" --npz-dir data/npz/lafan1 --max-clips 4 --max-times 8 --shuffle-seed 1 --out "$dir/margins_rt_ckpt_latest.json"
+  [ -f "$dir/margins_adv_rt_ckpt_latest.json" ] || launch "$dir/eval_margins_adv_rt.log" "${PY[@]}" scripts/eval_margins.py --ckpt "$ck" --npz-dir data/npz/lafan1 --max-clips 4 --max-times 8 --kind adv --shuffle-seed 1 --out "$dir/margins_adv_rt_ckpt_latest.json"
+  wait_all || die "a margin retest failed"
   "${PY[@]}" scripts/check_run.py lafan --run-dir "$dir" || die "LAFAN1 gate failed: fix this before running BONES-SEED"
-  "${PY[@]}" scripts/check_run.py margins "$dir/margins_adv_ckpt_latest.json" || die "adv margin controls failed"
+  "${PY[@]}" scripts/check_run.py margins "$dir/margins_adv_ckpt_latest.json" "$dir/margins_rt_ckpt_latest.json" "$dir/margins_adv_rt_ckpt_latest.json" || die "margin controls failed"
+  "${PY[@]}" scripts/retest_margins.py --state-a "$dir/margins_ckpt_latest.json" --state-b "$dir/margins_rt_ckpt_latest.json" \
+    --adv-a "$dir/margins_adv_ckpt_latest.json" --adv-b "$dir/margins_adv_rt_ckpt_latest.json" || die "margin retest failed: simulator noise changes the margins"
   "${PY[@]}" scripts/compare_margins.py --random "$dir/margins_ckpt_latest.json" --adv "$dir/margins_adv_ckpt_latest.json" --out "$dir/compare_margins.json"
   log "validate: all gates passed"
 }
@@ -122,19 +131,24 @@ main_run() {
   for f in train_manifest.csv clip_categories.csv "${SETS[@]/%/.txt}"; do
     [ -f "$split/$f" ] || die "$split/$f missing: run make_split.py first"
   done
-  mkdir -p "$dir" data/library
-  if [ ! -f "data/library/${RUN}_train.pt" ]; then
-    log "pack the training library"
-    "${PY[@]}" scripts/data/build_library.py --npz-dir data/npz/bones_seed --manifest "$split/train_manifest.csv" --out "data/library/${RUN}_train.pt"
+  mkdir -p "$dir"
+  if [ "$NPZ" = data/npz/bones_seed ]; then
+    mkdir -p data/library
+    if [ ! -f "data/library/${RUN}_train.pt" ]; then
+      log "pack the training library"
+      "${PY[@]}" scripts/data/build_library.py --npz-dir "$NPZ" --manifest "$split/train_manifest.csv" --out "data/library/${RUN}_train.pt"
+    fi
+    train "$RUN" "$MAIN_HOURS" --data.library "data/library/${RUN}_train.pt"
+  else
+    train "$RUN" "$MAIN_HOURS" --data.npz-dir "$NPZ" --data.manifest "$split/train_manifest.csv"
   fi
-  train "$RUN" "$MAIN_HOURS" --data.library "data/library/${RUN}_train.pt"
 
   log "benchmark and world-model error on ${SETS[*]} (parallel)"
   for s in "${SETS[@]}"; do
     [ -f "$dir/benchmark_$s.json" ] || launch "$dir/eval_benchmark_$s.log" "${PY[@]}" scripts/eval_benchmark.py --ckpt "$ck" \
-      --npz-dir data/npz/bones_seed --clip-list "$split/$s.txt" --out "$dir/benchmark_$s.json"
+      --npz-dir "$NPZ" --clip-list "$split/$s.txt" --out "$dir/benchmark_$s.json"
     [ -f "$dir/wm_$s.json" ] || launch "$dir/eval_wm_$s.log" "${PY[@]}" scripts/eval_wm_heldout.py --ckpt "$ck" \
-      --npz-dir data/npz/bones_seed --clip-list "$split/$s.txt" --categories "$split/clip_categories.csv" --out "$dir/wm_$s.json"
+      --npz-dir "$NPZ" --clip-list "$split/$s.txt" --categories "$split/clip_categories.csv" --out "$dir/wm_$s.json"
   done
   wait_all || die "an evaluation failed"
 
@@ -148,11 +162,21 @@ main_run() {
   for s in train_eval heldout_cat; do
     for k in state wm adv; do
       [ -f "$dir/margins_${s}_$k.json" ] || launch "$dir/eval_margins_${s}_$k.log" "${PY[@]}" scripts/eval_margins.py --ckpt "$ck" \
-        --npz-dir data/npz/bones_seed --clip-list "$split/$s.txt" --categories "$split/clip_categories.csv" --kind "$k" --out "$dir/margins_${s}_$k.json"
+        --npz-dir "$NPZ" --clip-list "$split/$s.txt" --categories "$split/clip_categories.csv" --kind "$k" --out "$dir/margins_${s}_$k.json"
     done
   done
   wait_all || die "a margin run failed"
+  log "margin retest on 4 heldout_cat clips: state and adv with a shuffled branch-to-env assignment (parallel)"
+  for k in state adv; do
+    [ -f "$dir/margins_heldout_cat_${k}_rt.json" ] || launch "$dir/eval_margins_heldout_cat_${k}_rt.log" "${PY[@]}" scripts/eval_margins.py --ckpt "$ck" \
+      --npz-dir "$NPZ" --clip-list "$split/heldout_cat.txt" --categories "$split/clip_categories.csv" --kind "$k" --max-clips 4 --shuffle-seed 1 \
+      --out "$dir/margins_heldout_cat_${k}_rt.json"
+  done
+  wait_all || die "a margin retest failed"
   "${PY[@]}" scripts/check_run.py margins "$dir"/margins_*.json || die "margin controls failed: the margins are not trustworthy"
+  "${PY[@]}" scripts/retest_margins.py --state-a "$dir/margins_heldout_cat_state.json" --state-b "$dir/margins_heldout_cat_state_rt.json" \
+    --adv-a "$dir/margins_heldout_cat_adv.json" --adv-b "$dir/margins_heldout_cat_adv_rt.json" | tee "$dir/retest_margins.txt" \
+    || die "margin retest failed: simulator noise changes the margins"
   for s in train_eval heldout_cat; do
     "${PY[@]}" scripts/compare_margins.py --random "$dir/margins_${s}_state.json" --adv "$dir/margins_${s}_adv.json" --out "$dir/compare_margins_$s.json" \
       | tee "$dir/compare_margins_$s.txt"

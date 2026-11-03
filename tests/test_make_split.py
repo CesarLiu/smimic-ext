@@ -50,6 +50,8 @@ def test_move_of():
     assert make_split.move_of("high_jump_R_001__A450") == "high_jump"
     assert make_split.move_of("fancy_spin_R_001__A430_M") == "fancy_spin"
     assert make_split.move_of("no_suffix_here") == "no_suffix_here"
+    assert make_split.move_of("walk1_subject1") == "walk"
+    assert make_split.move_of("fightAndSports1_subject4") == "fightAndSports"
 
 
 @pytest.mark.parametrize("use_metadata", [True, False])

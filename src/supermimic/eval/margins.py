@@ -7,7 +7,9 @@ model (``step``, ``spec.error_vector``), so it carries no simulator imports and 
 Envs that have not branched yet are copied from the control (env 0) at every step. Identical inputs do
 not keep parallel envs identical over long clips (float rounding differs per env origin, and tracking is
 chaotic over thousands of steps), so without the copy a branch would start from a state that differs
-from the nominal one by more than its perturbation. The reported drift is the largest one-step
+from the nominal one by more than its perturbation. The copy covers the simulator state only, not the
+observation history the policy acts on, so copied envs also take the control's action (otherwise the
+one-step drift is ~5e-3 typical, ~1 at its worst, on L4). The reported drift is the largest one-step
 divergence before the copy, in normalised error units, the same units as the perturbation sizes.
 """
 
@@ -20,6 +22,10 @@ import torch
 
 from supermimic.eval.perturb import apply_state_delta
 
+# One-step drift levels counted per synced env-step (normalised units): "typical" drift should stay below
+# DRIFT_TOL; above DRIFT_EVENT (the smallest state perturbation) it could stand in for a perturbation.
+DRIFT_TOL, DRIFT_EVENT = 0.01, 0.25
+
 
 def branch_times(length: int, first: int, every: int, window: int, max_times: int) -> list[int]:
     """Branch frames from ``first`` on, every ``every`` frames, leaving a full window before the clip end."""
@@ -30,8 +36,11 @@ def branch_times(length: int, first: int, every: int, window: int, max_times: in
     return times
 
 
-def run_branch_pass(env, cmd, io, policy, wm, xi, clip, times, chunk, kind, scales, dirs, mask, err_scale, limits, window, action_steps, wm_k, adv_fn=None, adv_dirs=None):
+def run_branch_pass(env, cmd, io, policy, wm, xi, clip, times, chunk, kind, scales, dirs, mask, err_scale, limits, window, action_steps, wm_k, adv_fn=None, adv_dirs=None, drift_counts=None):
     """One synchronous play of ``clip`` with the branches in ``chunk`` ((time idx, dir idx, scale idx) per env 1..).
+
+    ``drift_counts`` ({"env_steps", "over_tol", "events"}, optional) accumulates the synced env-steps and
+    how many of them drifted by more than DRIFT_TOL / DRIFT_EVENT.
 
     ``kind == "adv"``: ``adv_fn(step, hist_states, hist_actions)`` gives the unit direction at a branch time
     from the nominal history (states up to and including ``step``, actions before it). Directions are cached
@@ -63,6 +72,7 @@ def run_branch_pass(env, cmd, io, policy, wm, xi, clip, times, chunk, kind, scal
     for step in range(t_end):
         s = io.read()
         nominal = not bool(finished[0])
+        same = None
         if nominal:
             hist_s.append(s[0].clone())
             if step in times_set and step >= wm_k:
@@ -76,6 +86,10 @@ def run_branch_pass(env, cmd, io, policy, wm, xi, clip, times, chunk, kind, scal
             if same.any():
                 dev_norm = wm.spec.error_vector(s[same], s[0:1].expand(int(same.sum()), -1)).norm(dim=-1)
                 drift = max(drift, float(dev_norm.max()))
+                if drift_counts is not None:
+                    drift_counts["env_steps"] += dev_norm.numel()
+                    drift_counts["over_tol"] += int((dev_norm > DRIFT_TOL).sum())
+                    drift_counts["events"] += int((dev_norm > DRIFT_EVENT).sum())
                 io.sync(same.nonzero().squeeze(-1), 0)
         ids = ((branch_t == step) & ~finished).nonzero().squeeze(-1)
         if kind != "action" and ids.numel() > 0:
@@ -91,6 +105,8 @@ def run_branch_pass(env, cmd, io, policy, wm, xi, clip, times, chunk, kind, scal
             if torch.isfinite(d).all():
                 io.write(ids, apply_state_delta(s[0:1].expand(ids.numel(), -1), d, err_scale, limits))
         act = policy(obs["policy"], obs["goal"])
+        if same is not None and same.any():  # their observations predate the copy: act as the control does
+            act = torch.where(same[:, None], act[0:1], act)
         if nominal:
             hist_a.append(act[0].clone())  # noise-free protocol: the executed action is the policy action
         if kind == "action":
