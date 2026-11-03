@@ -9,6 +9,7 @@ dist/
 wandb/
 *.npz
 *.pt
+!tests/data/*.pt
 *.onnx
 .pytest_cache/
 .ruff_cache/
