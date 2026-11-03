@@ -222,8 +222,18 @@
   - 显式传入 `MotionTrackingTask` 与传入动作库的结果一致；
   - `tests/toy_vehicle.py` 的车辆任务（参考轨迹 + 预览目标）用三个接口跑通了整段 `imagine` 和 BPTT，并且在车辆的轨迹布局上，按回报的采样器会把重置集中到失败的 bin。
 
+- **策略网络维数**：`policy/nets.py` 的 `NetIO` 描述策略和 critic 的输入输出维数，以及固定的输入缩放。有两种构造方式：
+  - `NetIO.g1(pcfg)`：G1 的布局，按 `PolicyCfg` 的各项缩放构造，也是不传 `io` 时的默认值；
+  - `NetIO.from_interfaces(spec, heads, task, history)`：任意机器人，从三个接口取维数，从 `heads.obs_scale()`、`task.goal_scale()` 取缩放。
+
+  验证（`tests/test_policy_io.py`）：
+  - 默认构造的全尺寸 G1 策略和 critic，参数名、形状和缩放缓冲区与改动前的记录完全一致，旧检查点可以照常加载；
+  - G1 用两种方式得到的 `NetIO` 逐项相同；
+  - 车辆用接口构造的策略和 critic 跑通了一次完整的 `PolicyTrainer.update`。
+
+  附带修了一个旧问题：G1 的观测历史长度不是 10 时，解码器输入维数写死为 930，构造出来的网络无法前向（已确认旧代码会报形状错误）。
+
 仍然绑定 G1 的地方（下一步）：
-- **策略网络**：`policy/nets.py` 的 `ACT_DIM=29`、按 `OBS_TERMS` 的观测缩放和按 68 维帧的目标缩放。`PolicyTrainer` 因此还不能直接训练车辆策略；`imagine` 已经可以接受任意 `policy(obs, goal)`。
 - **裕度工具**：`eval/margins.py`、`adversarial.py` 里写死的 70 维和 `err_scale` 参数（应改为调用 `spec.apply_error`）。
 - **仿真环境**：车辆需要自己的环境（仿真器、回放记录、调用 `ReturnBasedResetSampler`），这就是 §6 的 E0。
 
@@ -272,7 +282,7 @@
 
 ## 9. 第一步具体做什么（两周内）
 
-1. 重构：`StateSpec` ✅、`AnalyticHeads` ✅、任务接口与重置采样器 ✅（见 §5 进度）；剩下策略网络维数和裕度工具。
+1. 重构：`StateSpec` ✅、`AnalyticHeads` ✅、任务接口与重置采样器 ✅、策略网络维数 ✅（见 §5 进度）；剩下裕度工具。
 2. 写双轨 + MF 轮胎的 GPU 仿真器，并与 CommonRoad MB 模型对拍（E0）。
 3. 生成一条赛道 × 3 个 μ 的参考，跑通 E1 的雅可比检查。**E1 的结论决定这个方向值不值得继续**：如果饱和区雅可比完全不可靠，就优先研究 §8 第一行的缓解，而不是直接上全库训练。
 

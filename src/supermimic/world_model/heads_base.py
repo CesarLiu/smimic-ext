@@ -17,6 +17,8 @@ Contract (``tests/test_heads_interface.py`` checks it for every implementation):
 * ``state_termination_features(s, ref)``: (…, term_feat_dim) inputs of the learned termination head;
 * ``termination_feature_scale(wm_cfg)``: per-feature scale of those inputs (typically 1/threshold);
 * ``critic_features(s, ref)``: (…, critic_feat_dim) privileged critic inputs;
+* ``obs_scale()``: (obs_dim,) fixed per-step input scale of the observation for the policy (multiplied
+  in; defaults to ones);
 * ``aux(s)``: the auxiliary output at a given state (same quantity as ``HeadsStep.aux``); only called
   when the task asks for it (``TaskBase.needs_aux``); defaults to None;
 * ``max_step_reward``: the largest per-step reward (normalises the reported return).
@@ -81,6 +83,10 @@ class AnalyticHeadsBase(ABC):
     @abstractmethod
     def critic_features(self, s: torch.Tensor, ref) -> torch.Tensor:
         """(…, critic_feat_dim) privileged critic inputs."""
+
+    def obs_scale(self) -> torch.Tensor:
+        """(obs_dim,) fixed input scale of one observation for the policy network (CPU tensor)."""
+        return torch.ones(self.obs_dim)
 
     def aux(self, s: torch.Tensor) -> torch.Tensor | None:
         """Auxiliary output at state ``s`` (the quantity ``evaluate`` returns for ``s_next``)."""

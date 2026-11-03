@@ -130,6 +130,10 @@ class AnalyticHeads(AnalyticHeadsBase):
     def obs_noise_half(self) -> torch.Tensor:
         return OBS_NOISE_HALF
 
+    def obs_scale(self, term_scale=(1.0, 5.0, 2.0, 1.0, 1.0)) -> torch.Tensor:
+        """1 / per-term scale over the 93-d observation (``PolicyCfg.obs_term_scale`` defaults)."""
+        return torch.cat([torch.full((d,), 1.0 / s) for (_name, d), s in zip(OBS_TERMS, term_scale)])
+
     def flatten_obs_history(self, hist: torch.Tensor) -> torch.Tensor:
         return flatten_history_term_major(hist)
 

@@ -14,6 +14,7 @@ Contract (``tests/test_task_interface.py`` checks it for every implementation):
   ``idx`` that the heads' ``evaluate`` / ``state_termination_features`` / ``critic_features`` accept;
 * ``termination_reference(idx)``: the part of the reference the termination features need (world-model
   fitting asks for it every window; defaults to ``reference``);
+* ``goal_scale()``: (goal_dim,) fixed input scale of the goal for the networks (defaults to ones);
 * ``goal(idx, ref, aux, noise)``: (n, goal_dim) policy goal. ``aux`` is the heads' auxiliary output at
   the current state (``AnalyticHeadsBase.aux`` / ``HeadsStep.aux``), requested only if ``needs_aux``;
   ``noise`` asks for the goal-side observation noise, if the task has any.
@@ -44,6 +45,10 @@ class TaskBase(ABC):
     def termination_reference(self, idx: torch.Tensor):
         """The reference fields the termination features read (others may be None)."""
         return self.reference(idx)
+
+    def goal_scale(self) -> torch.Tensor:
+        """(goal_dim,) fixed input scale of the goal for the policy / critic (CPU tensor)."""
+        return torch.ones(self.goal_dim)
 
     @abstractmethod
     def goal(self, idx: torch.Tensor, ref, aux: torch.Tensor | None, noise: bool) -> torch.Tensor:

@@ -21,8 +21,9 @@ def reference_at(lib, frame: torch.Tensor) -> ReferenceFrame:
 
 
 class MotionTrackingTask(TaskBase):
-    def __init__(self, lib, future_frames: int = 10, anchor_obs: bool | str = "none", anchor_index: int | None = None):
+    def __init__(self, lib, future_frames: int = 10, anchor_obs: bool | str = "none", anchor_index: int | None = None, goal_term_scale=(1.0, 5.0, 1.0, 2.0, 1.0, 1.0)):
         self.lib = lib
+        self.goal_term_scale = tuple(goal_term_scale)  # PolicyCfg.goal_term_scale defaults
         self.future_frames = future_frames
         self.mode = anchor_obs_mode(anchor_obs)
         self.goal_dim = future_frames * GOAL_FRAME_DIM + anchor_obs_dim(self.mode)
@@ -44,6 +45,11 @@ class MotionTrackingTask(TaskBase):
         # Only the root pose: the G1 termination features are height and tilt of the root.
         r = self.lib.ref(idx)
         return ReferenceFrame(None, None, None, None, r.root_pos_w, r.root_quat_w)
+
+    def goal_scale(self) -> torch.Tensor:
+        from supermimic.policy.nets import g1_goal_scale
+
+        return g1_goal_scale(self.goal_term_scale, self.goal_dim)
 
     def goal(self, idx: torch.Tensor, ref: ReferenceFrame, aux: torch.Tensor | None, noise: bool) -> torch.Tensor:
         g = self.lib.goal_window(idx, self.future_frames)
