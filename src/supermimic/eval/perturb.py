@@ -1,7 +1,8 @@
 """Counterfactual state / action perturbations for robustness margins (scripts/eval_margins.py).
 
-Perturbations live in the world model's normalised error space (``StateSpec.error_vector``): a 70-d
-vector [dp(3), rotvec(3), dv(3), dw(3), dq(29), dqd(29)] divided by the nominal scales ``err_scale``.
+Perturbations live in the world model's normalised error space (``StateSpec.error_vector``): for the
+G1, a 70-d vector [dp(3), rotvec(3), dv(3), dw(3), dq(29), dqd(29)] divided by the nominal scales
+``err_scale``; other robots define their own through ``StateSpecBase``.
 A state perturbation of norm r is therefore directly comparable with a world-model prediction error of
 norm r, which is the comparison the margins are for.
 """
@@ -13,41 +14,36 @@ import math
 import numpy as np
 import torch
 
-from supermimic.kinematics.rotations import quat_from_rotvec, quat_mul, quat_normalize
+from supermimic.world_model.state_spec import ERR_DIM, ERR_POS, ERR_VEL, g1_apply_error
 
-ERR_DIM = 70
-# Index groups of the 70-d error vector.
-_POS = list(range(0, 6)) + list(range(12, 41))  # dp, rotvec, dq
-_VEL = list(range(6, 12)) + list(range(41, 70))  # dv, dw, dqd
+# Kept for existing imports; the groups are defined by the G1 state spec.
+_POS = ERR_POS  # dp, rotvec, dq
+_VEL = ERR_VEL  # dv, dw, dqd
 
 
-def component_mask(components: str, device=None) -> torch.Tensor:
-    """(70,) float mask: ``vel`` (root and joint velocities), ``pos`` (root pose and joint angles) or ``all``."""
+def component_mask(components: str, device=None, spec=None) -> torch.Tensor:
+    """(err_dim,) float mask: ``vel`` (root and joint velocities), ``pos`` (root pose and joint angles) or ``all``.
+
+    ``spec`` (a ``StateSpecBase``) selects another robot's error groups; the default is the G1 layout.
+    """
+    if spec is not None:
+        return spec.component_mask(components, device)
+    if components not in ("pos", "vel", "all"):
+        raise ValueError(f"components must be pos, vel or all, got {components!r}")
     m = torch.zeros(ERR_DIM, device=device)
     if components in ("pos", "all"):
         m[_POS] = 1.0
     if components in ("vel", "all"):
         m[_VEL] = 1.0
-    if components not in ("pos", "vel", "all"):
-        raise ValueError(f"components must be pos, vel or all, got {components!r}")
     return m
 
 
 def apply_state_delta(s: torch.Tensor, delta: torch.Tensor, err_scale: torch.Tensor, joint_limits: torch.Tensor | None = None) -> torch.Tensor:
-    """State s' with ``error_vector(s', s) == delta`` (the inverse of ``StateSpec.error_vector``).
+    """State s' with ``error_vector(s', s) == delta`` for the G1 layout (see ``g1_apply_error``).
 
-    s (N, 71) = [root_pos, root_quat wxyz, joint_pos, root_lin_vel_w, root_ang_vel_b, joint_vel];
-    delta (N, 70) normalised; err_scale (70,). The rotation is applied in the body frame
-    (q' = q ⊗ exp(r)), matching ``error_vector``'s log(q^-1 ⊗ q'). Joint angles are clamped to
-    ``joint_limits`` (29, 2) if given, so the round trip is exact only inside the limits.
+    Robot-agnostic code should call ``spec.apply_error(s, delta, limits)`` instead.
     """
-    d = delta * err_scale
-    p, q, qj, v, w, qd = s[..., 0:3], s[..., 3:7], s[..., 7:36], s[..., 36:39], s[..., 39:42], s[..., 42:71]
-    q_new = quat_normalize(quat_mul(quat_normalize(q), quat_from_rotvec(d[..., 3:6])))
-    qj_new = qj + d[..., 12:41]
-    if joint_limits is not None:
-        qj_new = torch.minimum(torch.maximum(qj_new, joint_limits[:, 0]), joint_limits[:, 1])
-    return torch.cat([p + d[..., 0:3], q_new, qj_new, v + d[..., 6:9], w + d[..., 9:12], qd + d[..., 41:70]], dim=-1)
+    return g1_apply_error(s, delta, err_scale, joint_limits)
 
 
 def random_directions(n: int, dim: int, mask: torch.Tensor | None = None, seed: int = 0) -> torch.Tensor:

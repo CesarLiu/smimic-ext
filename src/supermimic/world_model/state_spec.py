@@ -1,4 +1,7 @@
-"""State representation for the world model (plan D1–D3).
+"""G1 implementation of the world model's state representation (plan D1–D3).
+
+Implements ``StateSpecBase`` (``spec_base.py``, the robot-agnostic contract); other robots add
+their own spec next to this one.
 
 Simulator state  s = [root_pos(3), root_quat wxyz(4), joint_pos(29), root_lin_vel_w(3),
                       root_ang_vel_b(3), joint_vel(29)]            (71, MuJoCo layout, origin-free)
@@ -36,15 +39,22 @@ from supermimic.kinematics.rotations import (
     rot6d_from_quat,
     rotvec_from_quat,
 )
+from supermimic.world_model.spec_base import StateSpecBase, StateSpecCfgBase
 
 STATE_DIM = 71
 FEAT_DIM = 71
 DELTA_DIM = 70
 NJ = 29
+XI_DIM = 1 + NJ + 3  # friction, joint encoder bias, torso CoM offset
+ERR_DIM = 70
+
+# Index groups of the 70-d error vector [dp(3), rotvec(3), dv(3), dw(3), dq(29), dqd(29)].
+ERR_POS = list(range(6)) + list(range(12, 12 + NJ))  # dp, rotvec, dq
+ERR_VEL = list(range(6, 12)) + list(range(12 + NJ, ERR_DIM))  # dv, dw, dqd
 
 
 @dataclass
-class StateSpecCfg:
+class StateSpecCfg(StateSpecCfgBase):
     dt: float = 0.02
     # Nominal error scales (D3) for [root pos m, root rotvec rad, root lin vel m/s, root ang vel rad/s, joint pos rad, joint vel rad/s].
     err_scale: tuple[float, ...] = (0.05, 0.1, 0.5, 1.0, 0.1, 2.0)
@@ -57,8 +67,19 @@ class StateSpecCfg:
     xi_offset: tuple[float, ...] = field(default_factory=lambda: (0.75,) + (0.0,) * 29 + (0.0,) * 3)
     xi_scale: tuple[float, ...] = field(default_factory=lambda: (0.45,) + (0.01,) * 29 + (0.05,) * 3)
 
+    def build(self, device, dtype=torch.float32) -> StateSpec:
+        return StateSpec(self, device, dtype)
 
-class StateSpec:
+
+class StateSpec(StateSpecBase):
+    """Unitree G1 (29 joints, free-floating root)."""
+
+    state_dim = STATE_DIM
+    feat_dim = FEAT_DIM
+    delta_dim = DELTA_DIM
+    err_dim = ERR_DIM
+    action_dim = NJ
+
     def __init__(self, cfg: StateSpecCfg, device, dtype=torch.float32):
         self.cfg = cfg
         self.dt = cfg.dt
@@ -68,6 +89,9 @@ class StateSpec:
         self.in_scale = rep(cfg.in_scale, (1, 6, 3, 3, NJ, NJ)).to(device=device, dtype=dtype)
         self.xi_offset = torch.tensor(cfg.xi_offset, device=device, dtype=dtype)
         self.xi_scale = torch.tensor(cfg.xi_scale, device=device, dtype=dtype)
+        self.xi_dim = len(cfg.xi_offset)
+        if len(cfg.xi_scale) != self.xi_dim:
+            raise ValueError(f"xi_offset has {self.xi_dim} entries but xi_scale has {len(cfg.xi_scale)}")
 
     # ------------------------------------------------------------------ split / features
 
@@ -118,10 +142,29 @@ class StateSpec:
         err = torch.cat([p1 - p2, rot_err, v1 - v2, w1 - w2, qj1 - qj2, qd1 - qd2], dim=-1)
         return err / self.err_scale
 
-    def normalized_sq_error(self, s_pred: torch.Tensor, s_true: torch.Tensor) -> torch.Tensor:
-        """Mean over dims of the squared normalised error (the reported 'prediction error')."""
-        e = self.error_vector(s_pred, s_true)
-        return (e * e).mean(-1)
+    def apply_error(self, s: torch.Tensor, err: torch.Tensor, limits: torch.Tensor | None = None) -> torch.Tensor:
+        """Inverse of ``error_vector``; ``limits`` (29, 2) clamps the joint angles."""
+        return g1_apply_error(s, err, self.err_scale, limits)
+
+    def error_groups(self) -> dict[str, list[int]]:
+        return {"pos": ERR_POS, "vel": ERR_VEL}
+
+
+def g1_apply_error(s: torch.Tensor, err: torch.Tensor, err_scale: torch.Tensor, joint_limits: torch.Tensor | None = None) -> torch.Tensor:
+    """State s' with ``error_vector(s', s) == err`` (the inverse of ``StateSpec.error_vector``).
+
+    s (N, 71) = [root_pos, root_quat wxyz, joint_pos, root_lin_vel_w, root_ang_vel_b, joint_vel];
+    err (N, 70) normalised; err_scale (70,). The rotation is applied in the body frame
+    (q' = q ⊗ exp(r)), matching ``error_vector``'s log(q^-1 ⊗ q'). Joint angles are clamped to
+    ``joint_limits`` (29, 2) if given, so the round trip is exact only inside the limits.
+    """
+    d = err * err_scale
+    p, q, qj, v, w, qd = StateSpec.split(s)
+    q_new = quat_normalize(quat_mul(quat_normalize(q), quat_from_rotvec(d[..., 3:6])))
+    qj_new = qj + d[..., 12:41]
+    if joint_limits is not None:
+        qj_new = torch.minimum(torch.maximum(qj_new, joint_limits[:, 0]), joint_limits[:, 1])
+    return torch.cat([p + d[..., 0:3], q_new, qj_new, v + d[..., 6:9], w + d[..., 9:12], qd + d[..., 41:70]], dim=-1)
 
 
 def quat_apply_inverse_quat(q: torch.Tensor) -> torch.Tensor:

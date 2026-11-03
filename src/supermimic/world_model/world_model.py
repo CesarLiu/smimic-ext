@@ -10,13 +10,15 @@ import torch.nn.functional as F
 
 from supermimic.world_model.dynamics import MLP, DynamicsMLP
 from supermimic.world_model.heads import AnalyticHeads, ReferenceFrame
-from supermimic.world_model.state_spec import StateSpec, StateSpecCfg
+from supermimic.world_model.spec_base import make_state_spec
+from supermimic.world_model.state_spec import StateSpecCfg
 
 
 @dataclass
 class WorldModelCfg:
     hidden: tuple[int, ...] = (2048, 2048, 2048)
     term_hidden: tuple[int, ...] = (64, 64)
+    # Any StateSpecCfgBase works here; the annotation names the G1 config for the tyro CLI.
     state_spec: StateSpecCfg = field(default_factory=StateSpecCfg)
     term_loss_weight: float = 1.0
     height_threshold: float = 0.25
@@ -41,8 +43,9 @@ class WorldModel(nn.Module):
     def __init__(self, cfg: WorldModelCfg, heads: AnalyticHeads, device):
         super().__init__()
         self.cfg = cfg
-        self.spec = StateSpec(cfg.state_spec, device)
-        self.dynamics = DynamicsMLP(hidden=cfg.hidden)
+        self.spec = make_state_spec(cfg.state_spec, device)
+        sp = self.spec
+        self.dynamics = DynamicsMLP(feat_dim=sp.feat_dim, act_dim=sp.action_dim, xi_dim=sp.xi_dim, hidden=cfg.hidden, out_dim=sp.delta_dim)
         self.term_head = TerminationHead(cfg.term_hidden, cfg.height_threshold, cfg.tilt_threshold)
         self.heads = heads  # analytic observation / reward / FK (no parameters)
         self.to(device)
@@ -63,7 +66,7 @@ class WorldModel(nn.Module):
     # ------------------------------------------------------------------ Eq. 1
 
     def _loss_step(self, s, a, xi, s_true, done, ref_root_pos, ref_root_quat):
-        """One autoregressive step of Eq. 1: returns (s_next, sq_err (n,70), term_bce (n,), logits (n,))."""
+        """One autoregressive step of Eq. 1: returns (s_next, sq_err (n, err_dim), term_bce (n,), logits (n,))."""
         s_next = self.step(s, a, xi)
         e = self.spec.error_vector(s_next, s_true)
         feats = self.heads.termination_features(s_next[..., 0:3], s_next[..., 3:7], ReferenceFrame(None, None, None, None, ref_root_pos, ref_root_quat))
@@ -77,7 +80,8 @@ class WorldModel(nn.Module):
     def window_loss(self, states: torch.Tensor, a_exec: torch.Tensor, xi: torch.Tensor, done: torch.Tensor, refs: list[ReferenceFrame]):
         """k-step autoregressive loss.
 
-        states: (k+1, n, 71) logged states; a_exec: (k, n, 29); xi: (n, 33);
+        states: (k+1, n, state_dim) logged states; a_exec: (k, n, action_dim); xi: (n, xi_dim)
+        (G1: 71, 29, 33);
         done: (k, n) termination label of states 1..k; refs[j]: reference of transition j (for the
         termination features of state j+1).
         """
