@@ -15,7 +15,7 @@
 | E0 | 单卡吞吐 ≥ 10⁶ 环境步/秒 | ✅ 通过（H200，65536 个环境：完整环境 eager 1.9×10⁶，compile 1.3×10⁷） | §3.1，第 3 步 |
 | demo | 整条 SuperMimic 循环在车辆上学会跟踪 | ✅ 通过：留出参考回报 0.10 → 0.36（加入原始动作约束后；之前为 0.62，见 §3.8） | §3.8，`docs/results/vehicle_demo_e2e.json` |
 | E1 | 饱和区雅可比检查（修订后的关卡） | ✅ 大容量世界模型通过（饱和区 8 步梯度余弦 0.94，误差 0.11）；默认规模未通过 | §3.9，`docs/results/vehicle_jacobian_check*.json` |
-| 第 2 步 | 策略在附着极限附近学跟踪，大小世界模型对比（无关卡，只测量） | ✅ 已测：三档摩擦都学会（回报约 0.1 → 0.4–0.6）；大模型近极限仍在参考上 57 / 96 / 49%，小模型 47 / 49 / 12%；终止率仍有 33–50% | §3.10，`docs/results/vehicle_limit_study.json` |
+| 第 2 步 | 策略在附着极限附近学跟踪，大小世界模型对比（无关卡，只测量） | ✅ 已测两次（两台机器）：三档摩擦都学会（回报约 0.1 → 0.38–0.76）；大模型在 12 个对比项里 11 项更好、1 项持平，但单次运行的数字波动很大，需要多种子；终止率仍有 33–50% | §3.10，`docs/results/vehicle_limit_study.json` |
 
 ## 环境
 
@@ -31,7 +31,7 @@
 
 这样做的原因：这些脚本训练的都是小网络，PyTorch 默认每个核开一个线程，线程同步的开销远大于计算本身。早期版本的脚本不设限，在 192 核机器上会占满整台机器、几乎卡死，E1 默认规模跑了 1949 s，4 核机器上只要 229 s（实现见 `src/supermimic/vehicles/threads.py`）。在 4 核机器上，默认值就是 4，与之前的结果逐位相同。
 
-**哪些脚本用 GPU**：只有 `bench_sim.py` 和 `demo_e2e.py`（`--device cuda`）支持 GPU。`jacobian_check.py`、`limit_study.py` 和验证脚本只在 CPU 上跑。
+**哪些脚本用 GPU**：`bench_sim.py`、`demo_e2e.py` 和 `limit_study.py` 支持 `--device cuda`；`jacobian_check.py` 和验证脚本只在 CPU 上跑。
 
 ## H200 服务器上的完整命令（192 核 + GPU）
 
@@ -60,6 +60,14 @@ CUDA_VISIBLE_DEVICES=3 env -u PYTHONPATH uv run python scripts/vehicle/demo_e2e.
 
 预期：吞吐 `env` 一列在 65536 个环境时约 1.3×10⁷；demo 打印 `PASSED`。GPU 上的数字不会与 CPU 报告逐位相同。
 
+极限研究也可以放在 GPU 上跑（`--device cuda`；参考仍在 CPU 上生成，所以与 CPU 版完全相同）：
+
+```bash
+CUDA_VISIBLE_DEVICES=3 env -u PYTHONPATH uv run python scripts/vehicle/limit_study.py --device cuda --out logs/limit/report_gpu.json | tee logs/limit/gpu.log
+```
+
+默认规模（256 个环境、batch 256）时，GPU 不一定比 8 线程 CPU 快，因为每个算子都很小。GPU 的价值在加大规模（见第 6 步）。
+
 **③ CPU 上的长任务：三个并行，各绑 8 个核（约 25 分钟，由最长的极限研究决定）**
 
 ```bash
@@ -74,15 +82,15 @@ tail -n 3 logs/e1/default.log logs/e1/large.log; tail -n 8 logs/limit/report.log
 - 每个日志第一行是 `cpu threads: 8 (of 8 usable cores)`；
 - E1 默认规模打印 `FAILED`（误差 0.551），这是已知结果；
 - E1 大容量打印 `PASSED`（0.943 / 0.115）；
-- 极限研究打印一张表，数字与 `docs/results/vehicle_limit_study.json` 一致。线程数从 4 变成 8 后，浮点舍入可能有很小的差异，结论不变。
+- 极限研究打印一张表。“训练前”一行应与报告相同；“训练后”的数字在不同机器上会明显不同（见第 6 步），这台服务器上的一次结果记录在 §3.10 的运行 B。
 
-**④ 可选：CPU 上复现 demo 的报告数字（约 8 分钟，可以和 ③ 一起跑）**
+**④ 可选：CPU 上跑 demo（约 8 分钟，可以和 ③ 一起跑）**
 
 ```bash
 taskset -c 32-39 env -u PYTHONPATH uv run python scripts/vehicle/demo_e2e.py --out logs/vehicle_demo/report_cpu.json > logs/vehicle_demo/cpu.log 2>&1 &
 ```
 
-预期：0.104 → 0.356，与 `docs/results/vehicle_demo_e2e.json` 一致；同样可能有很小的浮点差异。若要逐位复现报告，用 `--threads 4`。
+预期：打印 `PASSED`。训练前的 0.104 应与报告相同；训练后的数字在不同机器上可能与报告（0.356）明显不同，原因同第 6 步。
 
 **说明**
 - **线程数**：8 是默认上限。想试别的值，用 `--threads N`，或用常见问题里的小测试找出最快的线程数。用 `taskset` 绑核时，核数要与线程数相等。
@@ -165,7 +173,7 @@ env -u PYTHONPATH uv run python scripts/vehicle/demo_e2e.py --out logs/vehicle_d
 
 **检查**：
 - 最后打印 `PASSED`，退出码 0；
-- 种子 0 下数字应与 `docs/results/vehicle_demo_e2e.json` 相同：留出参考上的归一化回报 0.104 → 0.356，平均坚持步数 86 → 254，世界模型 8 步误差 0.25；
+- 种子 0 下，训练前的数字（回报 0.104、坚持步数 86）在任何机器上都应与 `docs/results/vehicle_demo_e2e.json` 相同。训练后的数字（报告中 0.356、254 步、世界模型 8 步误差 0.25）只在同一台机器上可复现，换机器可能明显不同（见常见问题）；
 - 成功判据写在脚本的 `check()` 里：回报至少翻倍且至少高 0.15，坚持步数至少翻倍，世界模型误差 < 3。
 
 **在 GPU 上跑 demo**：
@@ -196,7 +204,7 @@ env -u PYTHONPATH uv run python scripts/vehicle/jacobian_check.py --hidden 512 5
 - 关卡（2026-11-04 修订，`jacobian.e1_gate`）：u > 0.9 时 8 步动作梯度余弦中位数 > 0.8，且 8 步误差平均值 < 0.2；
 - **大容量配置应打印 `PASSED`**（退出码 0；0.943 / 0.115）；
 - **默认配置打印 `FAILED`**（退出码 1；误差 0.551 超标），这是已知结果，说明需要大容量世界模型；
-- 种子 0 下数字应与 `docs/results/vehicle_jacobian_check.json`、`vehicle_jacobian_check_large.json` 一致。
+- 种子 0 下数字应与 `docs/results/vehicle_jacobian_check.json`、`vehicle_jacobian_check_large.json` 接近；只在同一台机器上逐位一致（见常见问题）。
 
 可选参数：
 - `--save run.pt`：保存世界模型和比较用的雅可比，便于离线分析；
@@ -216,18 +224,31 @@ env -u PYTHONPATH uv run python scripts/vehicle/jacobian_check.py --hidden 512 5
 
 **判定**：脚本按修订后的关卡判定。原关卡（饱和区单步余弦 > 0.8、误差比 ≤ 3 倍）两种配置都不过；修订的理由见 §3.9。单步雅可比仍然输出，作为诊断。
 
-### 6. 第 2 步：极限附近的策略学习（CPU 约 23 分钟）
+### 6. 第 2 步：极限附近的策略学习（CPU 约 23 分钟；也可在 GPU 上跑）
 
 - [ ] 跑极限研究（依次训练小、大两种世界模型）
 
 ```bash
 env -u PYTHONPATH uv run python scripts/vehicle/limit_study.py --out logs/limit/report.json
 # 只跑一种：--models large；改摩擦档：--mu-levels 0.5 0.8 1.0
+# GPU：--device cuda（多卡时加 CUDA_VISIBLE_DEVICES=3 或 --device cuda:3）
 ```
+
+**加大规模（GPU，新的实验配置，尚未跑过）**：E4 方向要看更长、更大的训练能否把终止率降下来，例如：
+
+```bash
+CUDA_VISIBLE_DEVICES=3 env -u PYTHONPATH uv run python scripts/vehicle/limit_study.py --device cuda --models large \
+    --num-envs 4096 --batch 1024 --iters 10000 --refs-per-level 48 --out logs/limit/large_scale.json | tee logs/limit/large_scale.log
+```
+
+这组参数没有调过：学习率、`--warmup` / `--policy-warmup` 可能需要随规模调整；结果不能与默认规模的报告直接比较。
 
 **检查**：
 - 退出码 0，最后打印一张表（每档摩擦：回报 / 近极限仍在参考上的比例 / 近极限横向误差）；
-- 种子 0 下数字应与 `docs/results/vehicle_limit_study.json` 相同。训练后：小 0.516 / 0.47、0.381 / 0.49、0.405 / 0.12；大 0.590 / 0.57、0.530 / 0.95、0.489 / 0.49；
+- “训练前”一行应与 `docs/results/vehicle_limit_study.json` 相同（参考和初始策略在任何机器上都一样）；
+- **“训练后”的数字只在同一台机器上可复现**。同一台机器上，结果与线程数无关、逐位确定。换机器后，微小的数值差异会被训练过程放大：会话环境（运行 A）和 H200 服务器（运行 B）上同一命令的结果，回报相差可达 0.21，近极限比例相差可达 48 个百分点。两次的对照见 §3.10；
+- 运行 A 的训练后结果：小 0.516 / 0.47、0.381 / 0.49、0.405 / 0.12；大 0.590 / 0.57、0.530 / 0.95、0.489 / 0.49。运行 B：小 0.724 / 1.00、0.521 / 0.33、0.474 / 0.60；大 0.759 / 1.00、0.542 / 0.72、0.582 / 0.80；
+- 该看的是大小模型的相对关系，单次运行的绝对数字不可靠；
 - 没有通过/不通过的判定，这是测量。
 
 **怎么读日志**：
@@ -272,5 +293,8 @@ env -u PYTHONPATH uv run python scripts/vehicle/limit_study.py --out logs/limit/
 
   4 核机器上 4 线程约 16 ms。另外，脚本打印的耗时不含导入。冷启动时导入约 1–1.5 分钟（脚本会间接导入 G1 的 mjlab 依赖链），第一次执行 `uv run` 还要先同步依赖。
 - **demo 在 GPU 上第 100 次迭代后崩溃，报 `number of categories cannot exceed 2^24`**：回放缓冲区超过了 CUDA multinomial 的上限，见第 4 步，拉取最新代码即可。
-- **数字与 `docs/results/` 不一致**：先确认种子和参数都是默认值。CPU 上的结果是确定的；换机器或换 BLAS 后，浮点舍入可能不同，数字会有小差异，但结论不应改变。
+- **数字与 `docs/results/` 不一致**：先确认种子和参数都是默认值。
+  - 不涉及训练的结果，换机器也应一致或只差很小：对拍、吞吐以外的检查、各脚本“训练前”的评估；
+  - 涉及训练的结果，只在同一台机器上逐位可复现：demo、E1、极限研究。同一台机器上与线程数无关。换机器后，CPU 指令集、库版本等带来的微小数值差异会被训练放大。E1 的结果对此不太敏感；极限研究很敏感（§3.10 的运行 A 与 B）；
+  - GPU 上的结果与 CPU 也不同。
 - **开启 ABS/ESC 做 E1 或第 2 步**：两个脚本都固定关闭它们（`env_cfg()` 里）。门限逻辑附近的有限差分没有意义；如果要研究开启时的梯度质量，需要另行设计（例如只在远离门限的样本上比较）。

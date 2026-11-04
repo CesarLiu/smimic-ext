@@ -1,7 +1,7 @@
 """Step 2 after E1: can a policy trained through the world model track references at the grip limit, and
 does a world model with accurate multi-step gradients (the large one of E1) matter for that?
 
-    PYTHONPATH=src python scripts/vehicle/limit_study.py [--models small large] [--iters 2500]
+    PYTHONPATH=src python scripts/vehicle/limit_study.py [--models small large] [--iters 2500] [--device cuda]
 
 * References: for each road friction level (default 0.5 / 0.8 / 1.0) trajectories generated under that
   friction, lateral-acceleration peaks 40-95 % of mu g, so they are feasible for it (VEHICLE_PROPOSAL.md
@@ -50,6 +50,7 @@ NEAR_LIMIT = 0.8
 def parse(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--device", default="cpu", help="cpu or cuda[:i]; references are always generated on the CPU (the same set on every device)")
     ap.add_argument("--models", nargs="+", default=["small", "large"], choices=list(MODELS))
     ap.add_argument("--mu-levels", type=float, nargs="+", default=[0.5, 0.8, 1.0])
     ap.add_argument("--ay-frac", type=float, nargs=2, default=[0.4, 0.95])
@@ -87,16 +88,18 @@ def evaluate(policy, heads, lib: ReferenceLibrary, args) -> dict:
     """Deterministic play of every reference from its start at its own friction, nominal context otherwise."""
     n, length = lib.layout.num_sequences, int(lib.lengths[0])
     cfg = env_cfg(args, n, 2, train=False)
-    env = VehicleTrackingEnv(cfg, lib, record=False)
+    dev = args.device
+    env = VehicleTrackingEnv(cfg, lib, device=dev, record=False)
     env.forced_xi = torch.tensor([1.0, 1.0, 1.0, 0.0, 0.0])  # friction then set from the reference
     env.forced_frame[:] = lib.layout.seq_start
     obs = env.reset()
-    hist = ObsHistory(heads, n, args.history, "cpu")
-    hist.reset(torch.arange(n), obs["policy"])
-    alive = torch.ones(n, dtype=torch.bool)
-    ret, steps, lat = torch.zeros(n), torch.zeros(n), torch.zeros(n)
-    nl_total, nl_alive = torch.zeros(n), torch.zeros(n)
-    nl_err = {"lat": torch.zeros(n), "yaw": torch.zeros(n), "beta": torch.zeros(n)}
+    hist = ObsHistory(heads, n, args.history, dev)
+    hist.reset(torch.arange(n, device=dev), obs["policy"])
+    z = lambda: torch.zeros(n, device=dev)  # noqa: E731
+    alive = torch.ones(n, dtype=torch.bool, device=dev)
+    ret, steps, lat = z(), z(), z()
+    nl_total, nl_alive = z(), z()
+    nl_err = {"lat": z(), "yaw": z(), "beta": z()}
     start = lib.layout.seq_start
     for t in range(length - 1):
         frame = env.frame.clone()
@@ -137,13 +140,14 @@ def evaluate_levels(policy, heads, eval_libs, args) -> dict:
 def train(model: str, args, lib, eval_libs, t0) -> dict:
     torch.manual_seed(args.seed)
     cfg = env_cfg(args, args.num_envs, args.episode_steps + 50)
-    env = VehicleTrackingEnv(cfg, lib, seed=args.seed)
+    dev = args.device
+    env = VehicleTrackingEnv(cfg, lib, device=dev, seed=args.seed)
     heads = VehicleHeads(cfg, env.dyn.p.R_w)
     task = VehicleTask(lib, cfg.preview)
-    wm = WorldModel(WorldModelCfg(hidden=MODELS[model], state_spec=VehicleStateSpecCfg.from_env(cfg, env.dyn.p)), heads, "cpu")
+    wm = WorldModel(WorldModelCfg(hidden=MODELS[model], state_spec=VehicleStateSpecCfg.from_env(cfg, env.dyn.p)), heads, dev)
     io = NetIO.from_interfaces(wm.spec, heads, task, args.history)
     pcfg = PolicyCfg(encoder_hidden=(128,), decoder_hidden=(256, 128), latent_dim=32, history=args.history, decoder_last_gain=0.1)
-    policy, critic = Policy(pcfg, io), Critic(CriticCfg(hidden=(256, 128)), io=io)
+    policy, critic = Policy(pcfg, io).to(dev), Critic(CriticCfg(hidden=(256, 128)), io=io).to(dev)
     wm_tr = WorldModelTrainer(wm, task, WMTrainerCfg(window=8, batches_per_update=2, batch_size=args.batch, lr=args.lr, compile=None))
     pol_tr = PolicyTrainer(wm, policy, critic, task, PolicyTrainerCfg(horizon=args.horizon, batch_size=args.batch, history=args.history, lr=args.lr,
                                                                        critic_lr=args.lr, critic_epochs=2, critic_minibatches=2, compile=None,
@@ -151,9 +155,9 @@ def train(model: str, args, lib, eval_libs, t0) -> dict:
     before = evaluate_levels(policy, heads, eval_libs, args)
     n = args.num_envs
     obs = env.reset()
-    hist = ObsHistory(heads, n, args.history, "cpu")
-    hist.reset(torch.arange(n), obs["policy"])
-    noise_half = heads.obs_noise_half()
+    hist = ObsHistory(heads, n, args.history, dev)
+    hist.reset(torch.arange(n, device=dev), obs["policy"])
+    noise_half = heads.obs_noise_half().to(dev)
     log, wm_m, pol_m = [], {}, {}
     for it in range(args.iters):
         with torch.no_grad():
@@ -195,8 +199,9 @@ def main(argv=None) -> int:
     print(f"cpu threads: {threads} (of {usable_cores()} usable cores)", flush=True)
     t0 = time.time()
     cfg = env_cfg(args, args.num_envs, 2)
-    lib = ReferenceLibrary.concat(libraries(args, cfg, args.refs_per_level, args.seed))
-    eval_libs = libraries(args, cfg, args.eval_refs_per_level, args.seed + 1000)
+    # generated on the CPU, then moved: the same references whatever the training device
+    lib = ReferenceLibrary.concat(libraries(args, cfg, args.refs_per_level, args.seed)).to(args.device)
+    eval_libs = [x.to(args.device) for x in libraries(args, cfg, args.eval_refs_per_level, args.seed + 1000)]
     util = lib.util
     print(f"[{time.time() - t0:7.1f}s] references: {lib.layout.num_sequences} train ({float((util > NEAR_LIMIT).float().mean()):.1%} of steps near the limit), "
           f"{sum(x.layout.num_sequences for x in eval_libs)} held-out, friction levels {args.mu_levels}", flush=True)
