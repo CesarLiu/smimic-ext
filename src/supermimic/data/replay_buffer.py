@@ -36,6 +36,11 @@ class StartBatch:
     hist_actions: torch.Tensor  # (hist, n, A) clean actions a_{t-hist..t-1} aligned with hist_states' obs
 
 
+# torch.multinomial on CUDA rejects more than 2^24 categories; a buffer of num_envs x capacity rows passes
+# that with e.g. 65536 environments x 300 rows, so larger buffers sample the valid rows another way
+MULTINOMIAL_MAX_CATEGORIES = 2**24
+
+
 class ReplayBuffer:
     def __init__(self, num_envs: int, capacity: int, state_dim: int, act_dim: int, xi_dim: int, device):
         self.E, self.T = num_envs, capacity
@@ -117,7 +122,11 @@ class ReplayBuffer:
         total = int(flat.sum().item())
         if total == 0:
             raise RuntimeError("replay buffer has no sampleable rows yet")
-        idx = torch.multinomial(flat.float(), n, replacement=True)
+        if flat.numel() <= MULTINOMIAL_MAX_CATEGORIES:
+            idx = torch.multinomial(flat.float(), n, replacement=True)
+        else:  # CUDA multinomial takes at most 2^24 categories: same (uniform over valid rows) distribution
+            rows = flat.nonzero().squeeze(-1)
+            idx = rows[torch.randint(0, rows.numel(), (n,), device=rows.device)]
         return idx // self.T, idx % self.T
 
     @torch.no_grad()

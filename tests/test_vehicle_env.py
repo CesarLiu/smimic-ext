@@ -205,3 +205,23 @@ def test_non_finite_dynamics_end_the_episode_on_the_last_finite_state(lib):
     rows = env.buffer.s[env.buffer.valid]
     assert bool(torch.isfinite(rows).all())
     assert torch.equal(env.buffer.s[1][env.buffer.terminal[1]][0, :17], before[1])
+
+
+def test_replay_sampling_above_the_cuda_multinomial_limit(lib, monkeypatch):
+    """Buffers with more than 2^24 rows (e.g. 65536 envs x 300 on a GPU) cannot use CUDA multinomial; the
+    fallback must sample the same rows: only valid window starts, all of them, about uniformly."""
+    from supermimic.data import replay_buffer
+
+    env = VehicleTrackingEnv(VehicleEnvCfg(num_envs=16, replay_capacity=60, episode_steps=30), lib, seed=3)
+    torch.manual_seed(0)
+    for _ in range(80):
+        env.step(0.5 * torch.randn(16, 2))
+    buf = env.buffer
+    mask = buf.window_mask(8)
+    monkeypatch.setattr(replay_buffer, "MULTINOMIAL_MAX_CATEGORIES", 10)
+    e, t = buf._sample_from_mask(mask, 200_000)
+    assert bool(mask[e, t].all())
+    counts = torch.zeros_like(mask, dtype=torch.float).index_put_((e, t), torch.ones(e.numel()), accumulate=True)[mask]
+    assert bool((counts > 0).all()) and float(counts.std() / counts.mean()) < 0.2
+    w = buf.sample_windows(64, 8)  # the whole path
+    assert w.states.shape == (9, 64, env.cfg.state_dim)

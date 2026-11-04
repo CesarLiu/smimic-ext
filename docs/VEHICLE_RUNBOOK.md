@@ -12,7 +12,7 @@
 | 阶段 | 内容 | 状态 | 依据 |
 |---|---|---|---|
 | E0 | 与 CommonRoad 多体模型对拍，误差 < 5% | ✅ 通过，最差 4.08% | §3.1 |
-| E0 | 单卡吞吐 ≥ 10⁶ 环境步/秒 | ⏳ 未测，需要 GPU | 第 3 步 |
+| E0 | 单卡吞吐 ≥ 10⁶ 环境步/秒 | ✅ 通过（H200，65536 个环境：完整环境 eager 1.9×10⁶，compile 1.3×10⁷） | §3.1，第 3 步 |
 | demo | 整条 SuperMimic 循环在车辆上学会跟踪 | ✅ 通过：留出参考回报 0.10 → 0.36（加入原始动作约束后；之前为 0.62，见 §3.8） | §3.8，`docs/results/vehicle_demo_e2e.json` |
 | E1 | 饱和区雅可比检查（修订后的关卡） | ✅ 大容量世界模型通过（饱和区 8 步梯度余弦 0.94，误差 0.11）；默认规模未通过 | §3.9，`docs/results/vehicle_jacobian_check*.json` |
 | 第 2 步 | 策略在附着极限附近学跟踪，大小世界模型对比（无关卡，只测量） | ✅ 已测：三档摩擦都学会（回报约 0.1 → 0.4–0.6）；大模型近极限仍在参考上 57 / 96 / 49%，小模型 47 / 49 / 12%；终止率仍有 33–50% | §3.10，`docs/results/vehicle_limit_study.json` |
@@ -27,6 +27,17 @@
 
 下面的耗时都是在 4 核 CPU 上实测的。
 
+**多核机器（几十到上百核）上必须限制线程数**，否则会慢一个数量级。这些脚本训练的都是小网络，PyTorch 默认按核数开线程，线程同步的开销远大于计算本身。实例：在 192 核机器上，E1 默认规模不限线程跑了 1949 s，4 核机器只要 229 s。在 4 核机器上把线程数从 4 提到 16、64，每次世界模型更新从 16 ms 变成 65 ms、192 ms。做法：
+
+```bash
+export OMP_NUM_THREADS=8 MKL_NUM_THREADS=8
+taskset -c 0-7 env -u PYTHONPATH uv run python scripts/vehicle/jacobian_check.py --out logs/e1/default.json
+```
+
+几个任务可以并行跑，各绑一组不重叠的核（`taskset -c 0-7`、`-c 8-15`……）。最合适的线程数可以用常见问题里的小测试确定，一般是 4–16。
+
+**哪些脚本用 GPU**：只有 `bench_sim.py` 和 `demo_e2e.py`（`--device cuda`）支持 GPU。`jacobian_check.py`、`limit_study.py` 和验证脚本只在 CPU 上跑。
+
 ## 待办
 
 ### 1. 测试（约 2–4 分钟）
@@ -37,7 +48,7 @@
 env -u PYTHONPATH uv run pytest tests -q
 ```
 
-**检查**：CPU 上应为 129 passed，19 skipped（跳过的需要 GPU 或 LAFAN1 数据）。车辆相关的五个文件：
+**检查**：CPU 上应为 130 passed，19 skipped（跳过的需要 GPU 或 LAFAN1 数据）。车辆相关的五个文件：
 
 | 文件 | 测什么 |
 |---|---|
@@ -69,14 +80,26 @@ env -u PYTHONPATH uv run python scripts/vehicle/make_commonroad_reference.py --o
 
 ### 3. E0 吞吐（GPU，约 5 分钟）
 
-- [ ] 在 GPU 上测吞吐
+- [x] 在 GPU 上测吞吐（H200，2026-11-04，已通过）
 
 ```bash
 env -u PYTHONPATH uv run python scripts/vehicle/bench_sim.py --device cuda --num-envs 4096 16384 65536
 env -u PYTHONPATH uv run python scripts/vehicle/bench_sim.py --device cuda --num-envs 4096 16384 65536 --compile
 ```
 
-**检查**：`env` 一列（完整环境步，含执行器、奖励、回放记录、重置）至少有一个规模达到 1,000,000 steps/s，即为通过。把结果填进 §3.1 末尾和 §6 的 E0 行。CPU 参照值：16384 个环境时 eager 约 1.2×10⁵，compile 约 1.7×10⁵。
+多卡机器上用 `--device cuda:3` 这样的写法选卡。
+
+**检查**：`env` 一列（完整环境步，含执行器、奖励、回放记录、重置）至少有一个规模达到 1,000,000 steps/s，即为通过。
+
+H200 上的实测值（单位：步/秒），可用作对照：
+
+| 环境数 | eager dynamics | eager env | compile dynamics | compile env |
+|---|---|---|---|---|
+| 4096 | 132,594 | 116,313 | 5,938,580 | 839,451 |
+| 16384 | 530,628 | 463,706 | 23,017,056 | 3,310,053 |
+| 65536 | 2,112,797 | 1,854,382 | 92,412,499 | 13,111,939 |
+
+eager 下吞吐与环境数近似成正比，说明瓶颈是算子启动开销，所以环境数要开大。compile 后动力学比完整环境快约 7 倍，此时瓶颈在环境的记账逻辑。CPU 参照值：16384 个环境时 eager 约 1.2×10⁵，compile 约 1.7×10⁵。
 
 **不过关时**：先看 `dynamics` 一列。如果动力学本身就不够快，瓶颈在逐元素算子的启动开销：先确认 `--compile` 是否生效，再考虑把子步循环写成 CUDA graph 或 Warp kernel。如果动力学够快而环境慢，瓶颈在环境的记账逻辑（回放写入、重置）。
 
@@ -86,13 +109,18 @@ env -u PYTHONPATH uv run python scripts/vehicle/bench_sim.py --device cuda --num
 
 ```bash
 env -u PYTHONPATH uv run python scripts/vehicle/demo_e2e.py --out logs/vehicle_demo/report.json
-# GPU：--device cuda，可加大 --num-envs
+# GPU：--device cuda（见下方说明）
 ```
 
 **检查**：
 - 最后打印 `PASSED`，退出码 0；
 - 种子 0 下数字应与 `docs/results/vehicle_demo_e2e.json` 相同：留出参考上的归一化回报 0.104 → 0.356，平均坚持步数 86 → 254，世界模型 8 步误差 0.25；
 - 成功判据写在脚本的 `check()` 里：回报至少翻倍且至少高 0.15，坚持步数至少翻倍，世界模型误差 < 3。
+
+**在 GPU 上跑 demo**：
+- 默认 256 个环境时，GPU 不会比 CPU 快多少。网络和批都很小，时间主要花在算子启动上；
+- GPU 上的数字不会与 CPU 的报告逐位相同（浮点运算顺序不同、随机数流不同），但应该同样打印 `PASSED`；
+- 加大 `--num-envs` 时，回放缓冲区的行数 = 环境数 × (episode_steps + 50)。超过 2²⁴（约 1678 万，例如 65536 × 300）时，旧代码会在世界模型第一次更新（第 100 次迭代后）崩溃，因为 CUDA 的 `torch.multinomial` 最多支持 2²⁴ 个类别。已修复：超过这个上限时改用等价的均匀抽样。
 
 **怎么读日志**：
 - `wm 8-step`：第 100 次迭代起训练世界模型。策略开始学习后（第 300 次迭代），状态分布在变，这个值会先升到 1–3，再降到 0.3 以下，这是正常的；
@@ -173,6 +201,25 @@ env -u PYTHONPATH uv run python scripts/vehicle/limit_study.py --out logs/limit/
 ## 常见问题
 
 - **导入 mujoco 时报 EGL 错误**：加 `MUJOCO_GL=disable`。
-- **demo 或检查脚本比上表慢很多**：多个脚本或测试同时跑会抢 CPU。CPU 上请串行运行。
+- **demo 或检查脚本比上表慢很多**：最常见的原因是 PyTorch 线程数远多于实际可用的核：核很多的机器、几个任务同时跑、容器限了 CPU 配额。见“环境”一节，用 `OMP_NUM_THREADS` 加 `taskset` 限制。不确定用几个线程时，测一下每次更新的耗时，选最快的：
+
+  ```bash
+  for n in 2 4 8 16; do echo -n "threads $n: "; OMP_NUM_THREADS=$n taskset -c 0-$((n-1)) env -u PYTHONPATH uv run python -c "
+  import time, torch
+  net = torch.nn.Sequential(torch.nn.Linear(40,256), torch.nn.ELU(), torch.nn.Linear(256,256), torch.nn.ELU(), torch.nn.Linear(256,24))
+  opt = torch.optim.Adam(net.parameters(), 1e-3); x = torch.randn(512, 40)
+  def it():
+      h = x; loss = 0
+      for k in range(8):
+          y = net(h); loss = loss + y.pow(2).mean(); h = torch.cat([h[:, :16], y], -1)
+      opt.zero_grad(); loss.backward(); opt.step()
+  for _ in range(20): it()
+  t0 = time.time()
+  for _ in range(200): it()
+  print('%.1f ms / update' % ((time.time()-t0)/200*1e3))"; done
+  ```
+
+  4 核机器上 4 线程约 16 ms。另外，脚本打印的耗时不含导入。冷启动时导入约 1–1.5 分钟（脚本会间接导入 G1 的 mjlab 依赖链），第一次执行 `uv run` 还要先同步依赖。
+- **demo 在 GPU 上第 100 次迭代后崩溃，报 `number of categories cannot exceed 2^24`**：回放缓冲区超过了 CUDA multinomial 的上限，见第 4 步，拉取最新代码即可。
 - **数字与 `docs/results/` 不一致**：先确认种子和参数都是默认值。CPU 上的结果是确定的；换机器或换 BLAS 后，浮点舍入可能不同，数字会有小差异，但结论不应改变。
 - **开启 ABS/ESC 做 E1 或第 2 步**：两个脚本都固定关闭它们（`env_cfg()` 里）。门限逻辑附近的有限差分没有意义；如果要研究开启时的梯度质量，需要另行设计（例如只在远离门限的样本上比较）。
