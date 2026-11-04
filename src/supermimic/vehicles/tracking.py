@@ -84,7 +84,8 @@ def reward_terms(s_next: torch.Tensor, action: torch.Tensor, prev_action: torch.
         "heading": cfg.w_yaw * k(e["yaw"], cfg.sigma_yaw),
         "speed": cfg.w_v * k(e["v"], cfg.sigma_v),
         "sideslip": cfg.w_beta * k(e["beta"], cfg.sigma_beta),
-        "action_rate": cfg.w_action_rate * ((action - prev_action) ** 2).sum(-1),
+        # on the squashed commands the actuators see (env.actuator_update), so the penalty stays bounded
+        "action_rate": cfg.w_action_rate * ((torch.tanh(action) - torch.tanh(prev_action)) ** 2).sum(-1),
     }
     t = {name: v * cfg.dt for name, v in t.items()}
     t["total"] = sum(t[n] for n in TERM_NAMES)

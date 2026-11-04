@@ -36,6 +36,11 @@ class PolicyTrainerCfg:
     obs_noise: bool = True
     compile: str | None = "default"  # None | "default" | "reduce-overhead" | "max-autotune-no-cudagraphs"
     anchor_obs: bool | str = "none"  # set from EnvCfg.anchor_obs by the training loop
+    # Optional bound on values: the critic's TD targets and the terminal value in the policy objective are
+    # clipped to [-value_clip, value_clip] (e.g. the largest discounted return, max_step_reward / (1 - gamma)).
+    # Off by default (the G1 runs never needed it); keeps bootstrapping from running away when imagined
+    # states leave the data.
+    value_clip: float | None = None
 
 
 class PolicyTrainer:
@@ -74,6 +79,8 @@ class PolicyTrainer:
         feat, goals, e_root = self._critic_inputs(ro)
         if cfg.use_critic:
             v_H = self.critic(feat[-1], goals[-1], xi_norm, e_root[-1])
+            if cfg.value_clip is not None:
+                v_H = v_H.clamp(-cfg.value_clip, cfg.value_clip)
         else:
             v_H = None
         J = policy_objective(ro, v_H, cfg.gamma)
@@ -106,7 +113,11 @@ class PolicyTrainer:
                 H1, n, _ = feat_d.shape
                 xi_rep = xi_norm[None].expand(H1, n, -1)
                 values = self.critic(feat_d.reshape(H1 * n, -1), goals_d.reshape(H1 * n, -1), xi_rep.reshape(H1 * n, -1), e_root_d.reshape(H1 * n, -1)).reshape(H1, n)
+                if cfg.value_clip is not None:
+                    values = values.clamp(-cfg.value_clip, cfg.value_clip)
                 targets = gae_targets(ro.rewards.detach(), ro.dhat[1:].detach(), values, cfg.gamma, cfg.gae_lambda)  # (H, n)
+                if cfg.value_clip is not None:
+                    targets = targets.clamp(-cfg.value_clip, cfg.value_clip)
                 X_feat = feat_d[:-1].reshape(-1, feat_d.shape[-1])
                 X_goal = goals_d[:-1].reshape(-1, goals_d.shape[-1])
                 X_xi = xi_rep[:-1].reshape(-1, xi_rep.shape[-1])

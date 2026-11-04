@@ -8,7 +8,9 @@ need to know about one robot's simulator state, without knowing what the numbers
 * ``error_vector(s_pred, s_true)``: normalised error, the training loss and the reported metric;
 * ``apply_error(s, e)``: the inverse of ``error_vector`` (perturbations in error units);
 * ``normalize_xi(xi)``: sim-context normalisation;
-* ``error_groups()``: named index groups of the error vector (at least ``pos`` and ``vel``).
+* ``error_groups()``: named index groups of the error vector (at least ``pos`` and ``vel``);
+* ``step_known(s, s_next, action, xi)`` (optional): overwrite the parts of the predicted next state that
+  are known functions of state, action and context (e.g. actuator states), so they are exact, not learned.
 
 The G1 humanoid implementation is ``supermimic.world_model.state_spec.StateSpec``. A new robot
 adds a config dataclass deriving from ``StateSpecCfgBase`` whose ``build`` returns its spec; the
@@ -68,6 +70,10 @@ class StateSpecBase(ABC):
     @abstractmethod
     def error_groups(self) -> dict[str, list[int]]:
         """Named index groups of the error vector; ``pos`` and ``vel`` must partition it."""
+
+    def step_known(self, s: torch.Tensor, s_next: torch.Tensor, action: torch.Tensor, xi: torch.Tensor) -> torch.Tensor:
+        """Next state with its analytically known parts filled in (default: nothing is known)."""
+        return s_next
 
     # ------------------------------------------------------------------ shared helpers
 

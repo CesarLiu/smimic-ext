@@ -59,10 +59,10 @@ class WorldModel(nn.Module):
     # ------------------------------------------------------------------ one step
 
     def step(self, s: torch.Tensor, action: torch.Tensor, xi: torch.Tensor) -> torch.Tensor:
-        """s_{t+1} = integrate(s_t, f(s_t, a_t, xi))."""
+        """s_{t+1} = integrate(s_t, f(s_t, a_t, xi)), with the spec's known parts filled in."""
         feat = self.spec.canonical(s)
         delta = self.dynamics(feat, action, self.spec.normalize_xi(xi))
-        return self.spec.integrate(s, delta)
+        return self.spec.step_known(s, self.spec.integrate(s, delta), action, xi)
 
     def termination_logits(self, s_next: torch.Tensor, ref) -> torch.Tensor:
         return self.term_head(self.heads.state_termination_features(s_next, ref))

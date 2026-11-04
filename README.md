@@ -139,7 +139,7 @@ The design documents are in Chinese; a full Chinese version of this README follo
 | [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) | Experiment log: configuration, curves, evaluation, decisions that deviated from the plan, pitfalls |
 | [docs/GENERALIZATION.md](docs/GENERALIZATION.md) | Held-out generalisation experiment (g-series): splits, commands, how to read the results |
 | [docs/RESEARCH_DIRECTIONS.md](docs/RESEARCH_DIRECTIONS.md) | Survey: SuperMimic's development, community discussion, derived research directions, and where world-model BPTT transfers |
-| [docs/VEHICLE_PROPOSAL.md](docs/VEHICLE_PROPOSAL.md) | Design proposal: SuperMimic for vehicle limit handling (data, world model, rewards, curriculum, gated experiment plan, risks) |
+| [docs/VEHICLE_PROPOSAL.md](docs/VEHICLE_PROPOSAL.md) | Design proposal: SuperMimic for vehicle limit handling; the E0 vehicle simulator (`src/supermimic/vehicles/`, checked against CommonRoad) and the end-to-end demo `scripts/vehicle/demo_e2e.py` |
 
 ## Engineering notes
 

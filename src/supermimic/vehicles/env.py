@@ -84,30 +84,40 @@ class VehicleEnvCfg:
         return SIM_STATE_DIM + 1 + self.max_delay * ACTION_DIM + 5
 
 
+def actuator_update(cfg: VehicleEnvCfg, action, pending, delay, delta, a_act, steer_rate_max: float, steer_max: float):
+    """One control step of the actuators, shared by the environment and the world model (where it is exact).
+
+    Actions are squashed by tanh into the command ranges (+-steer_scale, +-accel_scale). ``pending`` (n, d, 2)
+    holds the last ``max_delay`` actions, newest first; ``delay`` (n,) selects which one acts now.
+    Returns the steering-rate request, the new longitudinal response, the new pending actions and the front
+    wheel angle the dynamics will reach (the steering integrator with CommonRoad's rate and angle limits)."""
+    hist = torch.cat([action[:, None, :], pending], 1)
+    cmd = hist[torch.arange(hist.shape[0], device=hist.device), delay]
+    steer_rate = (torch.tanh(cmd[:, 0]) * cfg.steer_scale - delta) / cfg.steer_tau
+    alpha = 1.0 - math.exp(-cfg.dt / cfg.accel_tau)
+    a_new = a_act + alpha * (torch.tanh(cmd[:, 1]) * cfg.accel_scale - a_act)
+    delta_next = (delta + cfg.dt * steer_rate.clamp(-steer_rate_max, steer_rate_max)).clamp(-steer_max, steer_max)
+    return steer_rate, a_new, hist[:, : cfg.max_delay], delta_next
+
+
 class Actuators:
     """Command delay, steering servo and longitudinal lag. State: filtered acceleration and the last
-    ``max_delay`` commands (newest first)."""
+    ``max_delay`` actions (newest first). Actions are squashed by tanh into the command ranges."""
 
     def __init__(self, cfg: VehicleEnvCfg, n: int, device, dtype=torch.float32):
         self.cfg = cfg
         self.a_act = torch.zeros(n, device=device, dtype=dtype)
         self.pending = torch.zeros(n, cfg.max_delay, ACTION_DIM, device=device, dtype=dtype)
         self.delay = torch.zeros(n, dtype=torch.long, device=device)
-        self._alpha = 1.0 - math.exp(-cfg.dt / cfg.accel_tau)
 
     def reset(self, ids, command: torch.Tensor, a_act: torch.Tensor, delay: torch.Tensor) -> None:
         self.pending[ids] = command[:, None, :]
         self.a_act[ids] = a_act
         self.delay[ids] = delay
 
-    def step(self, action: torch.Tensor, delta: torch.Tensor):
+    def step(self, action: torch.Tensor, delta: torch.Tensor, steer_rate_max: float = math.inf, steer_max: float = math.inf):
         """-> (steering rate, acceleration request) for the dynamics, held over the control step."""
-        cfg = self.cfg
-        hist = torch.cat([action[:, None, :], self.pending], 1)  # (n, max_delay + 1, 2), newest first
-        cmd = hist[torch.arange(hist.shape[0], device=hist.device), self.delay]
-        self.pending = hist[:, : cfg.max_delay]
-        steer_rate = (cmd[:, 0] * cfg.steer_scale - delta) / cfg.steer_tau
-        self.a_act = self.a_act + self._alpha * (cmd[:, 1] * cfg.accel_scale - self.a_act)
+        steer_rate, self.a_act, self.pending, _ = actuator_update(self.cfg, action, self.pending, self.delay, delta, self.a_act, steer_rate_max, steer_max)
         return steer_rate, self.a_act
 
     def state(self) -> torch.Tensor:
@@ -178,7 +188,8 @@ class ReferenceLibrary:
             vx = s[:, VX].clamp_min(3.0)
             delta_target = p.L * ay_t / vx**2 * (1 + (vx / cfg.assist.esc_char_speed) ** 2)
             a_req = (1.5 * (v_target - s[:, VX])).clamp(-4.0, 4.0)
-            action = torch.stack([delta_target / cfg.steer_scale, a_req / cfg.accel_scale], -1)
+            cmd = torch.stack([delta_target / cfg.steer_scale, a_req / cfg.accel_scale], -1)
+            action = torch.atanh(cmd.clamp(-0.95, 0.95))
             vel = torch.sqrt(s[:, VX] ** 2 + s[:, VY] ** 2)
             for k, v in (("x", s[:, X]), ("y", s[:, Y]), ("yaw", s[:, YAW]), ("v", vel), ("beta", torch.atan2(s[:, VY], s[:, VX].clamp_min(0.1))),
                          ("r", s[:, R]), ("vx", s[:, VX]), ("vy", s[:, VY]), ("delta", s[:, DELTA]), ("a_act", act.a_act.clone()), ("actions", action)):
@@ -192,6 +203,21 @@ class ReferenceLibrary:
             raise RuntimeError(f"only {keep.numel()} of {n} candidate references stayed stable; raise oversample")
         out = {k: v[keep].reshape(num * steps, *v.shape[2:]) for k, v in traj.items()}
         return cls(**out, lengths=(steps,) * num)
+
+
+def preview_goal(lib: ReferenceLibrary, frame: torch.Tensor, pose: torch.Tensor, preview) -> torch.Tensor:
+    """For each preview offset k (steps ahead of the target ``frame``, clamped at the trajectory end): the
+    reference position in the vehicle's body frame, the heading change, the reference speed and sideslip.
+    ``pose`` (n, 3) = x, y, yaw. (n, 5 * len(preview)); shared by the environment and the learner's task."""
+    offs = torch.tensor(preview, device=frame.device) - 1
+    idx = torch.minimum(frame[:, None] + offs[None], lib.layout.last_of(frame)[:, None])
+    ref = lib.ref(idx.reshape(-1))
+    n, k = idx.shape
+    x, y, yaw = pose[:, 0:1], pose[:, 1:2], pose[:, 2:3]
+    dx, dy = ref.x.reshape(n, k) - x, ref.y.reshape(n, k) - y
+    c, sn = torch.cos(yaw), torch.sin(yaw)
+    feats = torch.stack([c * dx + sn * dy, -sn * dx + c * dy, tracking.wrap(ref.yaw.reshape(n, k) - yaw), ref.v.reshape(n, k), ref.beta.reshape(n, k)], -1)
+    return feats.reshape(n, k * 5)
 
 
 # ---------------------------------------------------------------------- environment
@@ -235,17 +261,8 @@ class VehicleTrackingEnv:
         return torch.cat([s[:, VX:VX + 1], s[:, R:R + 1], s[:, AX:AY + 1], s[:, DELTA:DELTA + 1], s[:, W] * self.dyn.p.R_w, self.act.a_act[:, None], self.prev_action], -1)
 
     def goal(self) -> torch.Tensor:
-        """Reference preview: for each offset, the reference pose relative to the vehicle (body frame),
-        the heading change, the reference speed and sideslip."""
-        offs = torch.tensor(self.cfg.preview, device=self.device) - 1
-        idx = torch.minimum(self.frame[:, None] + offs[None], self.lib.layout.last_of(self.frame)[:, None])
-        ref = self.lib.ref(idx.reshape(-1))
-        n, k = idx.shape
-        dx = ref.x.reshape(n, k) - self.s[:, X:X + 1]
-        dy = ref.y.reshape(n, k) - self.s[:, Y:Y + 1]
-        c, sn = torch.cos(self.s[:, YAW:YAW + 1]), torch.sin(self.s[:, YAW:YAW + 1])
-        feats = torch.stack([c * dx + sn * dy, -sn * dx + c * dy, tracking.wrap(ref.yaw.reshape(n, k) - self.s[:, YAW:YAW + 1]), ref.v.reshape(n, k), ref.beta.reshape(n, k)], -1)
-        return feats.reshape(n, k * 5)
+        """Reference preview (``preview_goal``) from the current target step and pose."""
+        return preview_goal(self.lib, self.frame, self.s[:, X:YAW + 1], self.cfg.preview)
 
     def _obs(self) -> dict[str, torch.Tensor]:
         return {"policy": self.observation(), "goal": self.goal()}
@@ -288,7 +305,7 @@ class VehicleTrackingEnv:
         self.s[ids] = s
         self.flags[ids] = 0.0
         self.act.reset(ids, lib.actions[i], lib.a_act[i], self.xi[ids, 4].long())
-        self.prev_action[ids] = lib.actions[i]
+        self.prev_action[ids] = 0.0  # as the replay buffer backfills the actions before an episode start
         self.frame[ids] = torch.minimum(i + 1, lib.layout.last_of(i))  # the target of the next state
         self.ep_steps[ids] = 0
         self.sampler.ep_len[ids] = 0
