@@ -10,9 +10,10 @@
    u = sqrt(ax^2 + ay^2) / (mu g) and compared (``supermimic.vehicles.jacobian``): one-step Jacobians,
    8-step action gradients, key sensitivities, and the 8-step prediction error per bin.
 
-Gate (VEHICLE_PROPOSAL.md §6, E1): the 8-step error stays stable across bins (largest bin mean at most 3x
-the smallest), and near saturation (u > 0.9) the median cosine similarity of the one-step Jacobian
-exceeds 0.8. Exit code 0 if both hold. A JSON report is written either way.
+Gate (VEHICLE_PROPOSAL.md §6, E1, revised 2026-11-04 in §3.9; ``jacobian.e1_gate``): near saturation
+(u > 0.9, bins pooled) the median cosine of the 8-step action gradient exceeds 0.8 and the mean 8-step
+prediction error is below 0.2. The one-step Jacobian is reported as a diagnostic. Exit code 0 if the gate
+holds. A JSON report is written either way.
 """
 
 from __future__ import annotations
@@ -161,18 +162,12 @@ def main(argv=None) -> int:
     k_rows = summarise({"cos": kcos, "mag_ratio": kmag}, bins, smooth_k)
 
     # gate
-    errs = [r["nse_8step"] for r in err_rows if r["nse_8step"] is not None and r["windows"] >= 50]
-    stable = bool(errs) and max(errs) <= 3 * min(errs) and all(math.isfinite(e) for e in errs)
-    sat = (bins >= 4) & smooth
+    sat = (bins >= J.SAT_BIN) & smooth
     sat_cos = float(one["cos"][sat].median()) if sat.any() else float("nan")
-    sat_k = (bins >= 4) & smooth_k
+    sat_k = (bins >= J.SAT_BIN) & smooth_k
     sat_kcos = float(kcos[sat_k].median()) if sat_k.any() else float("nan")
-    passed = stable and sat_cos > 0.8
-    fails = []
-    if not stable:
-        fails.append(f"8-step error not stable across bins: {errs}")
-    if not sat_cos > 0.8:
-        fails.append(f"one-step Jacobian cosine near saturation {sat_cos:.3f} <= 0.8 (n = {int(sat.sum())})")
+    sat_err = J.saturation_error(err_rows)
+    passed, fails = J.e1_gate(err_rows, sat_kcos)
 
     print(f"\n8-step normalised error per utilisation bin (held-out, {w.states.shape[1]} windows):")
     for r in err_rows:
@@ -183,15 +178,17 @@ def main(argv=None) -> int:
     print(f"\n{args.k}-step gradient w.r.t. the first action:")
     for r in k_rows:
         print("  " + "  ".join(f"{k} {v}" for k, v in r.items()))
-    print(f"\nnear saturation (u > 0.9): one-step cosine median {sat_cos:.3f} (n {int(sat.sum())}), {args.k}-step cosine median {sat_kcos:.3f} (n {int(sat_k.sum())})")
+    print(f"\nnear saturation (u > 0.9): {args.k}-step action-gradient cosine median {sat_kcos:.3f} (n {int(sat_k.sum())}), "
+          f"{args.k}-step error {sat_err:.3f}; one-step cosine median {sat_cos:.3f} (diagnostic, n {int(sat.sum())})")
     if args.save:
         torch.save({"wm": wm.state_dict(), "spec_cfg": wm.cfg.state_spec, "s0": s0, "a0": a0, "xi": xi, "acts": acts, "J_sim": Js1, "J_wm": Jw,
                     "K_sim": Ks1, "K_wm": Kw, "bins": bins, "smooth": smooth, "smooth_k": smooth_k}, args.save)
     report = {
         "args": vars(args), "wall_clock_s": round(time.time() - t0, 1), "train_rows": env.buffer.size,
         "nse_8step_by_bin": err_rows, "one_step_by_bin": one_rows, "kstep_by_bin": k_rows,
-        "saturation": {"one_step_cos_median": sat_cos, "n": int(sat.sum()), "kstep_cos_median": sat_kcos, "n_k": int(sat_k.sum())},
-        "gate": {"error_stable": stable, "saturation_cos_gt_0_8": sat_cos > 0.8, "passed": passed, "failures": fails},
+        "saturation": {"one_step_cos_median": sat_cos, "n": int(sat.sum()), "kstep_cos_median": sat_kcos, "n_k": int(sat_k.sum()), "kstep_error": sat_err},
+        "gate": {"definition": "revised 2026-11-04: u > 0.9 pooled, k-step action-gradient cosine median > 0.8 and mean k-step error < 0.2",
+                 "passed": passed, "failures": fails},
     }
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

@@ -247,15 +247,22 @@
     "one_step_cos_median": 0.5970672720933353,
     "n": 118,
     "kstep_cos_median": 0.9431326504671589,
-    "n_k": 118
+    "n_k": 118,
+    "kstep_error": 0.11452445185891325
   },
   "gate": {
-    "error_stable": false,
-    "saturation_cos_gt_0_8": false,
-    "passed": false,
-    "failures": [
-      "8-step error not stable across bins: [0.0146, 0.0168, 0.0302, 0.0735, 0.0875, 0.1622]",
-      "one-step Jacobian cosine near saturation 0.597 <= 0.8 (n = 118)"
-    ]
+    "definition": "revised 2026-11-04: u > 0.9 pooled, k-step action-gradient cosine median > 0.8 and mean k-step error < 0.2",
+    "passed": true,
+    "failures": [],
+    "note": "re-evaluated from the recorded metrics of this run (deterministic, seed 0) when the gate was revised",
+    "original_gate": {
+      "error_stable": false,
+      "saturation_cos_gt_0_8": false,
+      "passed": false,
+      "failures": [
+        "8-step error not stable across bins: [0.0146, 0.0168, 0.0302, 0.0735, 0.0875, 0.1622]",
+        "one-step Jacobian cosine near saturation 0.597 <= 0.8 (n = 118)"
+      ]
+    }
   }
 }

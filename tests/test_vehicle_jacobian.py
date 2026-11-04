@@ -116,6 +116,19 @@ def test_utilisation_bins():
     assert J.bin_label(5) == ">1.0" and J.bin_label(0) == "0.0-0.3"
 
 
+def test_e1_gate():
+    rows = [{"windows": 100, "nse_8step": 0.01}] * 4 + [{"windows": 300, "nse_8step": 0.1}, {"windows": 100, "nse_8step": 0.3}]
+    assert J.saturation_error(rows) == pytest.approx((300 * 0.1 + 100 * 0.3) / 400)
+    assert J.e1_gate(rows, 0.9) == (True, [])
+    ok, fails = J.e1_gate(rows, 0.8)  # the cosine must exceed 0.8
+    assert not ok and "cosine" in fails[0]
+    bad = rows[:4] + [{"windows": 100, "nse_8step": 0.5}, {"windows": 0, "nse_8step": None}]
+    ok, fails = J.e1_gate(bad, 0.95)
+    assert not ok and "error" in fails[0]
+    ok, fails = J.e1_gate(rows[:4] + [{"windows": 0, "nse_8step": None}] * 2, 0.95)  # no saturated data: not a pass
+    assert not ok
+
+
 def test_check_script_runs(tmp_path):
     sys.path.insert(0, str(ROOT / "scripts" / "vehicle"))
     import jacobian_check

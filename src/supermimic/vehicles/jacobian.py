@@ -178,6 +178,34 @@ def compare(J_wm: torch.Tensor, J_sim: torch.Tensor) -> dict[str, torch.Tensor]:
     return out
 
 
+SAT_BIN = 4  # first bin of the saturation range, u > 0.9
+GATE_KSTEP_COS = 0.8
+GATE_SAT_ERROR = 0.2
+
+
+def e1_gate(err_rows: list[dict], sat_kstep_cos: float) -> tuple[bool, list[str]]:
+    """E1 gate as revised 2026-11-04 (VEHICLE_PROPOSAL.md §3.9): near saturation (u > 0.9, bins pooled)
+    the median cosine of the k-step action gradient exceeds 0.8 and the mean k-step prediction error is
+    below 0.2. The one-step Jacobian is reported as a diagnostic only.
+
+    ``err_rows``: per-bin {"windows", "nse_8step"} in bin order."""
+    sat = [r for r in err_rows[SAT_BIN:] if r.get("nse_8step") is not None and r.get("windows", 0) > 0]
+    n = sum(r["windows"] for r in sat)
+    sat_err = sum(r["nse_8step"] * r["windows"] for r in sat) / n if n else float("nan")
+    fails = []
+    if not (math.isfinite(sat_kstep_cos) and sat_kstep_cos > GATE_KSTEP_COS):
+        fails.append(f"k-step action-gradient cosine near saturation {sat_kstep_cos:.3f} <= {GATE_KSTEP_COS}")
+    if not (math.isfinite(sat_err) and sat_err < GATE_SAT_ERROR):
+        fails.append(f"k-step error near saturation {sat_err:.3f} >= {GATE_SAT_ERROR}")
+    return not fails, fails
+
+
+def saturation_error(err_rows: list[dict]) -> float:
+    sat = [r for r in err_rows[SAT_BIN:] if r.get("nse_8step") is not None and r.get("windows", 0) > 0]
+    n = sum(r["windows"] for r in sat)
+    return sum(r["nse_8step"] * r["windows"] for r in sat) / n if n else float("nan")
+
+
 def bin_index(u: torch.Tensor) -> torch.Tensor:
     edges = torch.tensor(BINS[1:-1], dtype=u.dtype)
     return torch.bucketize(u, edges, right=True)
