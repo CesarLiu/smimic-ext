@@ -27,6 +27,7 @@ from pathlib import Path
 
 import torch
 
+from supermimic.vehicles.threads import add_threads_arg, limit_threads, usable_cores
 from supermimic.imagination.policy_trainer import PolicyTrainer, PolicyTrainerCfg
 from supermimic.policy.nets import Critic, CriticCfg, NetIO, Policy, PolicyCfg
 from supermimic.vehicles import tracking
@@ -56,6 +57,7 @@ def parse(argv=None):
     ap.add_argument("--no-domain-randomization", action="store_true")
     ap.add_argument("--log-every", type=int, default=100)
     ap.add_argument("--out", default="logs/vehicle_demo/report.json")
+    add_threads_arg(ap)
     return ap.parse_args(argv)
 
 
@@ -131,6 +133,8 @@ def check(before: dict, after: dict, wm_err: float) -> list[str]:
 
 def main(argv=None) -> int:
     args = parse(argv)
+    threads = limit_threads(args.threads)
+    print(f"cpu threads: {threads} (of {usable_cores()} usable cores)", flush=True)
     dev = args.device
     torch.manual_seed(args.seed)
     t0 = time.time()

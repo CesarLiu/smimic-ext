@@ -33,6 +33,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from demo_e2e import ObsHistory
 
+from supermimic.vehicles.threads import add_threads_arg, limit_threads, usable_cores
 from supermimic.imagination.policy_trainer import PolicyTrainer, PolicyTrainerCfg
 from supermimic.policy.nets import Critic, CriticCfg, NetIO, Policy, PolicyCfg
 from supermimic.vehicles import tracking
@@ -67,6 +68,7 @@ def parse(argv=None):
     ap.add_argument("--action-noise", type=float, default=0.1)
     ap.add_argument("--log-every", type=int, default=250)
     ap.add_argument("--out", default="docs/results/vehicle_limit_study.json")
+    add_threads_arg(ap)
     return ap.parse_args(argv)
 
 
@@ -189,6 +191,8 @@ def table(results: dict, levels) -> str:
 
 def main(argv=None) -> int:
     args = parse(argv)
+    threads = limit_threads(args.threads)
+    print(f"cpu threads: {threads} (of {usable_cores()} usable cores)", flush=True)
     t0 = time.time()
     cfg = env_cfg(args, args.num_envs, 2)
     lib = ReferenceLibrary.concat(libraries(args, cfg, args.refs_per_level, args.seed))

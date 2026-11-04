@@ -27,6 +27,7 @@ from pathlib import Path
 
 import torch
 
+from supermimic.vehicles.threads import add_threads_arg, limit_threads, usable_cores
 from supermimic.vehicles import jacobian as J
 from supermimic.vehicles.dynamics import AssistCfg, VehicleDynamics
 from supermimic.vehicles.env import ReferenceLibrary, VehicleEnvCfg, VehicleTrackingEnv
@@ -52,6 +53,7 @@ def parse(argv=None):
     ap.add_argument("--k", type=int, default=8)
     ap.add_argument("--out", default="docs/results/vehicle_jacobian_check.json")
     ap.add_argument("--save", default=None, help="optional .pt with the world model and the compared Jacobians")
+    add_threads_arg(ap)
     return ap.parse_args(argv)
 
 
@@ -99,6 +101,8 @@ def summarise(metrics: dict[str, torch.Tensor], bins: torch.Tensor, ok: torch.Te
 
 def main(argv=None) -> int:
     args = parse(argv)
+    threads = limit_threads(args.threads)
+    print(f"cpu threads: {threads} (of {usable_cores()} usable cores)", flush=True)
     t0 = time.time()
     torch.manual_seed(args.seed)
     gen = torch.Generator().manual_seed(args.seed)

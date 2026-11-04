@@ -27,42 +27,35 @@
 
 下面的耗时都是在 4 核 CPU 上实测的。
 
-**多核机器（几十到上百核）上必须限制线程数**，否则会慢一个数量级。这些脚本训练的都是小网络，PyTorch 默认按核数开线程，线程同步的开销远大于计算本身。实例：在 192 核机器上，E1 默认规模不限线程跑了 1949 s，4 核机器只要 229 s。在 4 核机器上把线程数从 4 提到 16、64，每次世界模型更新从 16 ms 变成 65 ms、192 ms。做法：
+**CPU 线程数由脚本自己限制**：所有车辆脚本、验证模块和测试（`tests/conftest.py`）启动时都把 PyTorch 限制在 `min(8, 可用核数)` 个线程；设置了 `OMP_NUM_THREADS` 时用它；也可以用 `--threads N` 指定。启动时会打印 `cpu threads: N (of M usable cores)`。
 
-```bash
-export OMP_NUM_THREADS=8 MKL_NUM_THREADS=8
-taskset -c 0-7 env -u PYTHONPATH uv run python scripts/vehicle/jacobian_check.py --out logs/e1/default.json
-```
-
-几个任务可以并行跑，各绑一组不重叠的核（`taskset -c 0-7`、`-c 8-15`……）。最合适的线程数可以用常见问题里的小测试确定，一般是 4–16。
+这样做的原因：这些脚本训练的都是小网络，PyTorch 默认每个核开一个线程，线程同步的开销远大于计算本身。早期版本的脚本不设限，在 192 核机器上会占满整台机器、几乎卡死，E1 默认规模跑了 1949 s，4 核机器上只要 229 s（实现见 `src/supermimic/vehicles/threads.py`）。在 4 核机器上，默认值就是 4，与之前的结果逐位相同。
 
 **哪些脚本用 GPU**：只有 `bench_sim.py` 和 `demo_e2e.py`（`--device cuda`）支持 GPU。`jacobian_check.py`、`limit_study.py` 和验证脚本只在 CPU 上跑。
 
 ## H200 服务器上的完整命令（192 核 + GPU）
 
-在仓库根目录执行。下面的命令按这台机器写好了：CPU 任务各限 8 个线程并绑核，GPU 任务用 `CUDA_VISIBLE_DEVICES` 选卡（例子里用 3 号卡，换成空闲的卡）。各步的检查标准见后面的第 1–6 步。
+在仓库根目录执行。脚本默认各用 8 个 CPU 线程，不需要额外前缀。并行跑时，用 `taskset` 把每个任务绑在不重叠的核上，避免互相抢核。GPU 任务用 `CUDA_VISIBLE_DEVICES` 选卡（例子里用 3 号卡，换成空闲的卡）。各步的检查标准见后面的第 1–6 步。
 
 ```bash
-cd smimic-veh   # 仓库根目录
 git pull
 mkdir -p logs/e1 logs/limit logs/vehicle_demo logs/bench
-T="env OMP_NUM_THREADS=8 MKL_NUM_THREADS=8"
 ```
 
 **① 测试和对拍（几分钟，先跑，确认环境正常）**
 
 ```bash
-$T taskset -c 0-7 env -u PYTHONPATH uv run pytest tests -q
-$T taskset -c 0-7 env -u PYTHONPATH uv run python -m supermimic.vehicles.validation
+env -u PYTHONPATH uv run pytest tests -q
+env -u PYTHONPATH uv run python -m supermimic.vehicles.validation
 ```
 
-预期：`130 passed, 19 skipped`；`worst metric 4.08% (gate 5%)`。
+预期：`133 passed, 19 skipped`；`worst metric 4.08% (gate 5%)`。
 
 **② GPU：吞吐和 demo（各几分钟）**
 
 ```bash
-CUDA_VISIBLE_DEVICES=3 $T taskset -c 0-7 env -u PYTHONPATH uv run python scripts/vehicle/bench_sim.py --device cuda --num-envs 4096 16384 65536 --compile | tee logs/bench/h200.txt
-CUDA_VISIBLE_DEVICES=3 $T taskset -c 0-7 env -u PYTHONPATH uv run python scripts/vehicle/demo_e2e.py --device cuda --out logs/vehicle_demo/report_gpu.json | tee logs/vehicle_demo/gpu.log
+CUDA_VISIBLE_DEVICES=3 env -u PYTHONPATH uv run python scripts/vehicle/bench_sim.py --device cuda --num-envs 4096 16384 65536 --compile | tee logs/bench/h200.txt
+CUDA_VISIBLE_DEVICES=3 env -u PYTHONPATH uv run python scripts/vehicle/demo_e2e.py --device cuda --out logs/vehicle_demo/report_gpu.json | tee logs/vehicle_demo/gpu.log
 ```
 
 预期：吞吐 `env` 一列在 65536 个环境时约 1.3×10⁷；demo 打印 `PASSED`。GPU 上的数字不会与 CPU 报告逐位相同。
@@ -70,30 +63,31 @@ CUDA_VISIBLE_DEVICES=3 $T taskset -c 0-7 env -u PYTHONPATH uv run python scripts
 **③ CPU 上的长任务：三个并行，各绑 8 个核（约 25 分钟，由最长的极限研究决定）**
 
 ```bash
-$T taskset -c 8-15  env -u PYTHONPATH uv run python scripts/vehicle/jacobian_check.py --out logs/e1/default.json > logs/e1/default.log 2>&1 &
-$T taskset -c 16-23 env -u PYTHONPATH uv run python scripts/vehicle/jacobian_check.py --hidden 512 512 --updates 12000 --collect 1500 --out logs/e1/large.json > logs/e1/large.log 2>&1 &
-$T taskset -c 24-31 env -u PYTHONPATH uv run python scripts/vehicle/limit_study.py --out logs/limit/report.json > logs/limit/report.log 2>&1 &
+taskset -c 8-15  env -u PYTHONPATH uv run python scripts/vehicle/jacobian_check.py --out logs/e1/default.json > logs/e1/default.log 2>&1 &
+taskset -c 16-23 env -u PYTHONPATH uv run python scripts/vehicle/jacobian_check.py --hidden 512 512 --updates 12000 --collect 1500 --out logs/e1/large.json > logs/e1/large.log 2>&1 &
+taskset -c 24-31 env -u PYTHONPATH uv run python scripts/vehicle/limit_study.py --out logs/limit/report.json > logs/limit/report.log 2>&1 &
 wait
 tail -n 3 logs/e1/default.log logs/e1/large.log; tail -n 8 logs/limit/report.log
 ```
 
 预期：
+- 每个日志第一行是 `cpu threads: 8 (of 8 usable cores)`；
 - E1 默认规模打印 `FAILED`（误差 0.551），这是已知结果；
 - E1 大容量打印 `PASSED`（0.943 / 0.115）；
-- 极限研究打印一张表，数字与 `docs/results/vehicle_limit_study.json` 一致。
+- 极限研究打印一张表，数字与 `docs/results/vehicle_limit_study.json` 一致。线程数从 4 变成 8 后，浮点舍入可能有很小的差异，结论不变。
 
 **④ 可选：CPU 上复现 demo 的报告数字（约 8 分钟，可以和 ③ 一起跑）**
 
 ```bash
-$T taskset -c 32-39 env -u PYTHONPATH uv run python scripts/vehicle/demo_e2e.py --out logs/vehicle_demo/report_cpu.json > logs/vehicle_demo/cpu.log 2>&1 &
+taskset -c 32-39 env -u PYTHONPATH uv run python scripts/vehicle/demo_e2e.py --out logs/vehicle_demo/report_cpu.json > logs/vehicle_demo/cpu.log 2>&1 &
 ```
 
-预期：数字与 `docs/results/vehicle_demo_e2e.json` 相同（0.104 → 0.356）。
+预期：0.104 → 0.356，与 `docs/results/vehicle_demo_e2e.json` 一致；同样可能有很小的浮点差异。若要逐位复现报告，用 `--threads 4`。
 
 **说明**
-- **线程数**：8 是推荐值。想确认这台机器上最快的线程数，用常见问题里的小测试，然后改 `T` 里的数和 `taskset` 的核范围（核数要和线程数相等）。
-- **核范围**：如果机器上有别人的任务，用 `htop` 找空闲的核，换掉 `taskset -c` 的范围，不要和别的任务重叠。
-- **排队状态**：并行任务的进度看各自的 `.log`；`jobs` 看哪些还在跑。
+- **线程数**：8 是默认上限。想试别的值，用 `--threads N`，或用常见问题里的小测试找出最快的线程数。用 `taskset` 绑核时，核数要与线程数相等。
+- **核范围**：如果机器上有别人的任务，用 `htop` 找空闲的核，换掉 `taskset -c` 的范围。
+- **进度**：并行任务的进度看各自的 `.log`；`jobs` 看哪些还在跑。
 
 ## 待办
 
@@ -105,7 +99,7 @@ $T taskset -c 32-39 env -u PYTHONPATH uv run python scripts/vehicle/demo_e2e.py 
 env -u PYTHONPATH uv run pytest tests -q
 ```
 
-**检查**：CPU 上应为 130 passed，19 skipped（跳过的需要 GPU 或 LAFAN1 数据）。车辆相关的五个文件：
+**检查**：CPU 上应为 133 passed，19 skipped（跳过的需要 GPU 或 LAFAN1 数据）。车辆相关的五个文件：
 
 | 文件 | 测什么 |
 |---|---|
@@ -258,7 +252,7 @@ env -u PYTHONPATH uv run python scripts/vehicle/limit_study.py --out logs/limit/
 ## 常见问题
 
 - **导入 mujoco 时报 EGL 错误**：加 `MUJOCO_GL=disable`。
-- **demo 或检查脚本比上表慢很多**：最常见的原因是 PyTorch 线程数远多于实际可用的核：核很多的机器、几个任务同时跑、容器限了 CPU 配额。见“环境”一节，用 `OMP_NUM_THREADS` 加 `taskset` 限制。不确定用几个线程时，测一下每次更新的耗时，选最快的：
+- **demo 或检查脚本比上表慢很多，或者占满整台机器**：脚本现在默认限制在 8 个线程（见“环境”一节），先确认日志第一行的 `cpu threads`。几个任务同时跑时，用 `taskset` 绑在不重叠的核上；容器限了 CPU 配额时，用 `--threads` 设成配额的核数。不确定用几个线程时，测一下每次更新的耗时，选最快的：
 
   ```bash
   for n in 2 4 8 16; do echo -n "threads $n: "; OMP_NUM_THREADS=$n taskset -c 0-$((n-1)) env -u PYTHONPATH uv run python -c "

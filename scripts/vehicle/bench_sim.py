@@ -14,6 +14,7 @@ import time
 
 import torch
 
+from supermimic.vehicles.threads import add_threads_arg, limit_threads
 from supermimic.vehicles.dynamics import Context, VehicleDynamics
 from supermimic.vehicles.env import ReferenceLibrary, VehicleEnvCfg, VehicleTrackingEnv
 
@@ -41,11 +42,13 @@ def main():
     ap.add_argument("--substeps", type=int, default=10)
     ap.add_argument("--steps", type=int, default=50)
     ap.add_argument("--compile", action="store_true", help="torch.compile the dynamics step")
+    add_threads_arg(ap)
     args = ap.parse_args()
+    threads = limit_threads(args.threads)
     dev = args.device
     cfg0 = VehicleEnvCfg(substeps=args.substeps)
     lib = ReferenceLibrary.generate(cfg0, num=32, steps=600, seed=0, device=dev)
-    print(f"device {dev}, substeps {args.substeps}, compile {args.compile}")
+    print(f"device {dev}, substeps {args.substeps}, compile {args.compile}, cpu threads {threads}")
     for n in args.num_envs:
         dyn = VehicleDynamics(dt=0.02, substeps=args.substeps)
         step = torch.compile(dyn.step) if args.compile else dyn.step

@@ -22,6 +22,7 @@ from pathlib import Path
 
 import torch
 
+from supermimic.vehicles.threads import add_threads_arg, limit_threads
 from supermimic.vehicles.dynamics import (
     AY,
     DELTA,
@@ -109,7 +110,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--substeps", type=int, default=10)
     ap.add_argument("--float64", action="store_true")
+    add_threads_arg(ap)
     args = ap.parse_args()
+    limit_threads(args.threads)
     rows = compare(args.substeps, torch.float64 if args.float64 else torch.float32)
     worst = 0.0
     for man, mt, info in rows:
