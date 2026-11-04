@@ -95,10 +95,13 @@ def evaluate(policy, heads, lib: ReferenceLibrary, args) -> dict:
     ret, steps, lat = torch.zeros(n), torch.zeros(n), torch.zeros(n)
     nl_total, nl_alive = torch.zeros(n), torch.zeros(n)
     nl_err = {"lat": torch.zeros(n), "yaw": torch.zeros(n), "beta": torch.zeros(n)}
-    for _ in range(length - 1):
+    start = lib.layout.seq_start
+    for t in range(length - 1):
         frame = env.frame.clone()
         ref = lib.ref(frame)
-        near = lib.util[frame] > NEAR_LIMIT
+        # near-limit steps of the reference itself (rows that ended keep running from a reset, elsewhere):
+        # the denominator is the same for every policy
+        near = lib.util[start + t] > NEAR_LIMIT
         a = policy(hist.flat(), obs["goal"])
         obs, r, _term, _trunc, info = env.step(a)
         e = tracking.errors(env.s, ref)  # rows that just ended are masked by ``alive`` below
