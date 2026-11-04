@@ -98,3 +98,25 @@ def test_limit_study_runs(tmp_path):
     after = rep["results"]["small"]["after"]
     assert set(after) == {"mu_0.6", "mu_1.0"}
     assert all(0.0 <= lv["near_limit_survived_share"] <= 1.0 for lv in after.values())
+
+
+def test_limit_seeds_summary(tmp_path):
+    """Per-seed reports combine into mean / spread and the paired large - small difference."""
+    sys.path.insert(0, str(ROOT / "scripts" / "vehicle"))
+    import limit_seeds_summary as S
+
+    def report(seed, small, large):
+        lv = lambda r, s: {"normalized_return": r, "near_limit_survived_share": s, "termination_rate": 0.5, "mean_steps": 300.0}  # noqa: E731
+        return {"args": {"seed": seed}, "results": {"small": {"after": {"mu_1.0": lv(*small)}}, "large": {"after": {"mu_1.0": lv(*large)}}}}
+
+    paths = []
+    for seed, sm, lg in ((0, (0.4, 0.1), (0.5, 0.5)), (1, (0.5, 0.6), (0.5, 0.8)), (2, (0.6, 0.3), (0.7, 0.2))):
+        p = tmp_path / f"seed_{seed}.json"
+        p.write_text(json.dumps(report(seed, sm, lg)))
+        paths.append(str(p))
+    out = tmp_path / "summary.json"
+    assert S.main([*paths, "--out", str(out)]) == 0
+    s = json.loads(out.read_text())
+    d = s["large_minus_small"]["mu_1.0"]["normalized_return"]
+    assert math.isclose(d["mean"], (0.1 + 0.0 + 0.1) / 3) and d["large_better"] == 2 and d["tie"] == 1 and d["n"] == 3
+    assert math.isclose(s["per_model"]["small"]["mu_1.0"]["near_limit_survived_share"]["max"], 0.6)

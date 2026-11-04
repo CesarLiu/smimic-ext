@@ -49,7 +49,7 @@ env -u PYTHONPATH uv run pytest tests -q
 env -u PYTHONPATH uv run python -m supermimic.vehicles.validation
 ```
 
-预期：`133 passed, 19 skipped`；`worst metric 4.08% (gate 5%)`。
+预期：`134 passed, 19 skipped`；`worst metric 4.08% (gate 5%)`。
 
 **② GPU：吞吐和 demo（各几分钟）**
 
@@ -97,6 +97,71 @@ taskset -c 32-39 env -u PYTHONPATH uv run python scripts/vehicle/demo_e2e.py --o
 - **核范围**：如果机器上有别人的任务，用 `htop` 找空闲的核，换掉 `taskset -c` 的范围。
 - **进度**：并行任务的进度看各自的 `.log`；`jobs` 看哪些还在跑。
 
+## T4 服务器：多种子极限研究（下一步要跑的）
+
+§3.10 的问题是单次运行波动太大，大小世界模型的差距到底多大还不知道。这一步用多个种子回答它。
+
+- 极限研究在 CPU 上跑：默认规模下每个算子都很小，T4 不会比 8 线程 CPU 快；
+- 每个种子是一个独立进程，各绑 8 个核，按机器核数尽量并行；
+- 种子同时改变参考轨迹和训练过程，所以得到的波动包含这两部分。
+
+**① 准备（1 分钟）**
+
+```bash
+git pull
+nproc; nvidia-smi --query-gpu=name,memory.total --format=csv
+mkdir -p logs/limit logs/bench logs/vehicle_demo
+env -u PYTHONPATH uv run pytest tests -q -x     # 预期 134 passed, 19 skipped
+```
+
+**② 可选：T4 上的 GPU 检查（几分钟）**
+
+```bash
+env -u PYTHONPATH uv run python scripts/vehicle/bench_sim.py --device cuda --num-envs 4096 16384 65536 --compile | tee logs/bench/t4.txt
+env -u PYTHONPATH uv run python scripts/vehicle/demo_e2e.py --device cuda --out logs/vehicle_demo/report_t4.json | tee logs/vehicle_demo/t4.log
+```
+
+T4 的吞吐预计比 H200 低一个数量级左右，未实测。demo 应打印 `PASSED`。
+
+**③ 多种子极限研究（主任务）**
+
+```bash
+SEEDS="0 1 2 3 4 5 6 7"
+N=$(nproc); T=$(( N < 8 ? N : 8 )); J=$(( N / T ))   # 每个进程 T 个线程，同时 J 个进程
+echo "cores $N, threads per run $T, parallel runs $J"
+i=0
+for s in $SEEDS; do
+  c=$(( (i % J) * T ))
+  taskset -c $c-$((c + T - 1)) env -u PYTHONPATH uv run python scripts/vehicle/limit_study.py --seed $s \
+      --out logs/limit/seed_$s.json > logs/limit/seed_$s.log 2>&1 &
+  i=$((i + 1))
+  if (( i % J == 0 )); then wait; fi
+done
+wait
+grep -L "^report:" logs/limit/seed_*.log    # 列出没跑完的种子（应为空）
+```
+
+耗时：每个种子 8 线程约 18–23 分钟（H200 服务器上 1084 s）。8 个种子大约需要 ⌈8 / J⌉ × 20 分钟，例如 32 核（J = 4）约 40 分钟。核少时可以减少种子数，至少 4 个才有意义。
+
+进度看各自的日志：`tail -n 2 logs/limit/seed_*.log`。每个日志第一行应是 `cpu threads: 8 (of 8 usable cores)`。
+
+**④ 汇总**
+
+```bash
+env -u PYTHONPATH uv run python scripts/vehicle/limit_seeds_summary.py logs/limit/seed_*.json --out logs/limit/summary.json
+```
+
+输出两部分：
+- 每个模型、每档摩擦训练后的均值 ± 标准差和范围；
+- **大减小，按种子配对**的差：均值、粗略的 95% 区间（正态近似，种子少时很宽），以及“大模型更好 / 持平 / 种子数”。
+
+**怎么读**：
+- 区间整体在 0 以上，说明大模型确实更好，均值就是差距的估计；
+- 区间跨过 0，说明在这个训练量下看不出差别，§3.10 的结论 2 要再弱化；
+- 同一模型的标准差是单次运行的波动，以后判断别的改动是否有效时要以它为参照。
+
+把 `logs/limit/summary.json` 和 `seed_*.json` 发给我，我写进 §3.10。
+
 ## 待办
 
 ### 1. 测试（约 2–4 分钟）
@@ -107,7 +172,7 @@ taskset -c 32-39 env -u PYTHONPATH uv run python scripts/vehicle/demo_e2e.py --o
 env -u PYTHONPATH uv run pytest tests -q
 ```
 
-**检查**：CPU 上应为 133 passed，19 skipped（跳过的需要 GPU 或 LAFAN1 数据）。车辆相关的五个文件：
+**检查**：CPU 上应为 134 passed，19 skipped（跳过的需要 GPU 或 LAFAN1 数据）。车辆相关的五个文件：
 
 | 文件 | 测什么 |
 |---|---|
