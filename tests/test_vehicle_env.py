@@ -170,3 +170,38 @@ def test_friction_matched_references_and_episodes():
 
 def test_default_references_record_nominal_friction(lib):
     assert lib.seq_mu == (1.0,) * lib.layout.num_sequences and lib.util is not None
+
+
+def test_raw_actions_are_bounded_in_state_and_penalised_beyond_saturation(lib):
+    """tanh saturates, so a policy's raw outputs can drift without limit (the limit study's divergence):
+    the actuators hold them clamped to +-action_clip, and the reward penalises them beyond action_bound."""
+    env = _nominal_env(lib, n=4)
+    env.reset()
+    big = torch.tensor([[300.0, -300.0], [3.0, 0.0], [2.0, -2.0], [0.0, 0.0]])
+    _, r, _, _, info = env.step(big)
+    pend = env.state()[:, 18:18 + 2 * env.cfg.max_delay]
+    assert float(pend.abs().max()) <= env.cfg.action_clip
+    pen = info["reward_terms"]["action_bound"]
+    cfg = env.cfg.tracking
+    assert float(pen[0]) < -100 * cfg.dt and float(pen[1]) < 0 and float(pen[2]) == 0 and float(pen[3]) == 0
+    torch.testing.assert_close(pen[1], torch.tensor(cfg.w_action_bound * (3.0 - cfg.action_bound) ** 2 * cfg.dt))
+
+
+def test_non_finite_dynamics_end_the_episode_on_the_last_finite_state(lib):
+    env = _nominal_env(lib, n=3)
+    env.reset()
+    before = env.s.clone()
+    orig = env.dyn.step
+
+    def broken_step(s, flags, sr, ac, ctx):
+        s2, f2 = orig(s, flags, sr, ac, ctx)
+        s2 = s2.clone()
+        s2[1, 3] = float("nan")
+        return s2, f2
+
+    env.dyn.step = broken_step
+    _, r, term, _, info = env.step(torch.zeros(3, 2))
+    assert term.tolist() == [False, True, False] and bool(torch.isfinite(r).all())
+    rows = env.buffer.s[env.buffer.valid]
+    assert bool(torch.isfinite(rows).all())
+    assert torch.equal(env.buffer.s[1][env.buffer.terminal[1]][0, :17], before[1])

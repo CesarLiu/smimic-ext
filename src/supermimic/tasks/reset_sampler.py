@@ -160,7 +160,8 @@ class ReturnBasedResetSampler:
             steps = self.ep_steps[env_ids, :T]
             remaining = self.layout.last_of(steps) - steps + 1
             rtg = normalize_return_to_go(rtg, remaining, cfg.gamma, cfg.g_max)
-        valid = tmask.reshape(-1)
+        # a non-finite return (a diverged episode) must not poison its bin's estimate or the sampling weights
+        valid = tmask.reshape(-1) & torch.isfinite(rtg).reshape(-1)
         b = bins.reshape(-1)[valid]
         g = rtg.reshape(-1)[valid].float()
         if b.numel() == 0:

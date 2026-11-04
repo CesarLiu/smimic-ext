@@ -191,3 +191,18 @@ def test_reset_sampler_on_the_vehicle_layout_favours_hard_bins():
     assert bool((f >= 0).all()) and bool((f <= lay.last_of(f)).all()) and ent is not None
     share = (lay.bin_of(f) == 3).float().mean()
     assert float(share) > 2.0 / lay.num_bins  # the failed bin is drawn well above uniform
+
+
+def test_reset_sampler_ignores_non_finite_returns():
+    """A diverged episode (non-finite rewards) must not poison its bins or the sampling weights."""
+    from supermimic.tasks.reset_sampler import ReturnBasedResetSampler, ResetSamplerCfg, SequenceLayout
+
+    lay = SequenceLayout.from_lengths([40, 40], bin_size=10)
+    smp = ReturnBasedResetSampler(lay, ResetSamplerCfg(), num_envs=2, episode_steps=50, device="cpu")
+    for t in range(12):
+        r = torch.tensor([0.02, float("nan") if t == 5 else 0.02])
+        smp.log_step(torch.arange(2), r, torch.tensor([t, 40 + t]))
+    smp.finalize(torch.arange(2), torch.tensor([True, True]), torch.tensor([False, False]))
+    assert bool(torch.isfinite(smp.bin_return).all())
+    f, _ = smp.sample(500)
+    assert f.shape == (500,)

@@ -64,6 +64,9 @@ class VehicleEnvCfg:
     steer_tau: float = 0.05  # [s] steering servo time constant
     accel_tau: float = 0.15  # [s] longitudinal (engine / brake) response
     max_delay: int = 3  # [control steps]
+    # raw actions are clamped to +-action_clip before the actuators hold them (tanh(3) = 0.995): the
+    # pending commands, part of the logged state, stay bounded whatever the policy outputs
+    action_clip: float = 3.0
     domain_randomization: bool = True
     # set each episode's road friction to the friction its reference was generated under (needs a library
     # with seq_mu); the other context parameters stay randomised (VEHICLE_PROPOSAL.md §4, option 1)
@@ -91,10 +94,12 @@ class VehicleEnvCfg:
 def actuator_update(cfg: VehicleEnvCfg, action, pending, delay, delta, a_act, steer_rate_max: float, steer_max: float):
     """One control step of the actuators, shared by the environment and the world model (where it is exact).
 
-    Actions are squashed by tanh into the command ranges (+-steer_scale, +-accel_scale). ``pending`` (n, d, 2)
+    Actions are clamped to +-action_clip, then squashed by tanh into the command ranges (+-steer_scale,
+    +-accel_scale). ``pending`` (n, d, 2)
     holds the last ``max_delay`` actions, newest first; ``delay`` (n,) selects which one acts now.
     Returns the steering-rate request, the new longitudinal response, the new pending actions and the front
     wheel angle the dynamics will reach (the steering integrator with CommonRoad's rate and angle limits)."""
+    action = action.clamp(-cfg.action_clip, cfg.action_clip)
     hist = torch.cat([action[:, None, :], pending], 1)
     cmd = hist[torch.arange(hist.shape[0], device=hist.device), delay]
     steer_rate = (torch.tanh(cmd[:, 0]) * cfg.steer_scale - delta) / cfg.steer_tau
@@ -358,11 +363,17 @@ class VehicleTrackingEnv:
         cfg, lib = self.cfg, self.lib
         a_exec = action if action_noise is None else action + action_noise
         steer_rate, accel = self.act.step(a_exec, self.s[:, DELTA])
+        s_before = self.s
         self.s, self.flags = self.dyn.step(self.s, self.flags, steer_rate, accel, self.ctx)
+        # the dynamics leave their validity range (wheel lift-off, roll past ~1 rad) only from states far
+        # beyond any termination; should one get there, end the episode on the last finite state
+        broken = ~torch.isfinite(self.s).all(-1)
+        if broken.any():
+            self.s = torch.where(broken[:, None], s_before, self.s)
         ref = lib.ref(self.frame)
         terms = tracking.reward_terms(self.s, action, self.prev_action, ref, cfg.tracking)
         reward = terms["total"]
-        term = tracking.terminated(self.s, ref, cfg.tracking)
+        term = tracking.terminated(self.s, ref, cfg.tracking) | broken
         seq_end = self.frame >= lib.layout.last_of(self.frame)
         self.ep_steps += 1
         timeout = self.ep_steps >= cfg.episode_steps

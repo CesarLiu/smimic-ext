@@ -60,13 +60,14 @@ class VehicleStateSpecCfg(StateSpecCfgBase):
     steer_tau: float = 0.05
     accel_scale: float = 6.0
     accel_tau: float = 0.15
+    action_clip: float = 3.0
     steer_rate_max: float = 0.4
     steer_max: float = 1.066
 
     @classmethod
     def from_env(cls, env_cfg: VehicleEnvCfg, params) -> VehicleStateSpecCfg:
         return cls(dt=env_cfg.dt, max_delay=env_cfg.max_delay, steer_scale=env_cfg.steer_scale, steer_tau=env_cfg.steer_tau,
-                   accel_scale=env_cfg.accel_scale, accel_tau=env_cfg.accel_tau, steer_rate_max=params.steer_rate_max, steer_max=params.steer_max)
+                   accel_scale=env_cfg.accel_scale, accel_tau=env_cfg.accel_tau, action_clip=env_cfg.action_clip, steer_rate_max=params.steer_rate_max, steer_max=params.steer_max)
 
     def build(self, device, dtype=torch.float32) -> VehicleStateSpec:
         return VehicleStateSpec(self, device, dtype)
@@ -118,7 +119,7 @@ class VehicleStateSpec(StateSpecBase):
     def step_known(self, s, s_next, action, xi):
         """Steering angle, longitudinal response and pending actions: exact (``env.actuator_update``)."""
         c = self.cfg
-        env_like = VehicleEnvCfg(dt=c.dt, max_delay=c.max_delay, steer_scale=c.steer_scale, steer_tau=c.steer_tau, accel_scale=c.accel_scale, accel_tau=c.accel_tau)
+        env_like = VehicleEnvCfg(dt=c.dt, max_delay=c.max_delay, steer_scale=c.steer_scale, steer_tau=c.steer_tau, accel_scale=c.accel_scale, accel_tau=c.accel_tau, action_clip=c.action_clip)
         pending = s[..., A_ACT + 1:A_ACT + 1 + c.max_delay * ACTION_DIM].reshape(*s.shape[:-1], c.max_delay, ACTION_DIM)
         _, a_new, pend_new, delta_next = actuator_update(env_like, action, pending, xi[..., 4].long(), s[..., DELTA], s[..., A_ACT], c.steer_rate_max, c.steer_max)
         out = s_next.clone()
