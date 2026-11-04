@@ -38,6 +38,63 @@ taskset -c 0-7 env -u PYTHONPATH uv run python scripts/vehicle/jacobian_check.py
 
 **哪些脚本用 GPU**：只有 `bench_sim.py` 和 `demo_e2e.py`（`--device cuda`）支持 GPU。`jacobian_check.py`、`limit_study.py` 和验证脚本只在 CPU 上跑。
 
+## H200 服务器上的完整命令（192 核 + GPU）
+
+在仓库根目录执行。下面的命令按这台机器写好了：CPU 任务各限 8 个线程并绑核，GPU 任务用 `CUDA_VISIBLE_DEVICES` 选卡（例子里用 3 号卡，换成空闲的卡）。各步的检查标准见后面的第 1–6 步。
+
+```bash
+cd smimic-veh   # 仓库根目录
+git pull
+mkdir -p logs/e1 logs/limit logs/vehicle_demo logs/bench
+T="env OMP_NUM_THREADS=8 MKL_NUM_THREADS=8"
+```
+
+**① 测试和对拍（几分钟，先跑，确认环境正常）**
+
+```bash
+$T taskset -c 0-7 env -u PYTHONPATH uv run pytest tests -q
+$T taskset -c 0-7 env -u PYTHONPATH uv run python -m supermimic.vehicles.validation
+```
+
+预期：`130 passed, 19 skipped`；`worst metric 4.08% (gate 5%)`。
+
+**② GPU：吞吐和 demo（各几分钟）**
+
+```bash
+CUDA_VISIBLE_DEVICES=3 $T taskset -c 0-7 env -u PYTHONPATH uv run python scripts/vehicle/bench_sim.py --device cuda --num-envs 4096 16384 65536 --compile | tee logs/bench/h200.txt
+CUDA_VISIBLE_DEVICES=3 $T taskset -c 0-7 env -u PYTHONPATH uv run python scripts/vehicle/demo_e2e.py --device cuda --out logs/vehicle_demo/report_gpu.json | tee logs/vehicle_demo/gpu.log
+```
+
+预期：吞吐 `env` 一列在 65536 个环境时约 1.3×10⁷；demo 打印 `PASSED`。GPU 上的数字不会与 CPU 报告逐位相同。
+
+**③ CPU 上的长任务：三个并行，各绑 8 个核（约 25 分钟，由最长的极限研究决定）**
+
+```bash
+$T taskset -c 8-15  env -u PYTHONPATH uv run python scripts/vehicle/jacobian_check.py --out logs/e1/default.json > logs/e1/default.log 2>&1 &
+$T taskset -c 16-23 env -u PYTHONPATH uv run python scripts/vehicle/jacobian_check.py --hidden 512 512 --updates 12000 --collect 1500 --out logs/e1/large.json > logs/e1/large.log 2>&1 &
+$T taskset -c 24-31 env -u PYTHONPATH uv run python scripts/vehicle/limit_study.py --out logs/limit/report.json > logs/limit/report.log 2>&1 &
+wait
+tail -n 3 logs/e1/default.log logs/e1/large.log; tail -n 8 logs/limit/report.log
+```
+
+预期：
+- E1 默认规模打印 `FAILED`（误差 0.551），这是已知结果；
+- E1 大容量打印 `PASSED`（0.943 / 0.115）；
+- 极限研究打印一张表，数字与 `docs/results/vehicle_limit_study.json` 一致。
+
+**④ 可选：CPU 上复现 demo 的报告数字（约 8 分钟，可以和 ③ 一起跑）**
+
+```bash
+$T taskset -c 32-39 env -u PYTHONPATH uv run python scripts/vehicle/demo_e2e.py --out logs/vehicle_demo/report_cpu.json > logs/vehicle_demo/cpu.log 2>&1 &
+```
+
+预期：数字与 `docs/results/vehicle_demo_e2e.json` 相同（0.104 → 0.356）。
+
+**说明**
+- **线程数**：8 是推荐值。想确认这台机器上最快的线程数，用常见问题里的小测试，然后改 `T` 里的数和 `taskset` 的核范围（核数要和线程数相等）。
+- **核范围**：如果机器上有别人的任务，用 `htop` 找空闲的核，换掉 `taskset -c` 的范围，不要和别的任务重叠。
+- **排队状态**：并行任务的进度看各自的 `.log`；`jobs` 看哪些还在跑。
+
 ## 待办
 
 ### 1. 测试（约 2–4 分钟）
