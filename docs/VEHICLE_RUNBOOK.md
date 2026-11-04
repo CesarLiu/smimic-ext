@@ -1,0 +1,149 @@
+# Runbook：车辆方向（SuperMimic for Vehicles，E0–E1）
+
+设计和全部结论见 [`VEHICLE_PROPOSAL.md`](VEHICLE_PROPOSAL.md)：§3.1 仿真器与对拍，§3.8 端到端 demo，§3.9 E1 雅可比检查，§6 实验计划。这份文件只写**按什么顺序跑、每步跑完检查什么、结果怎么读**。
+
+代码位置：
+- `src/supermimic/vehicles/`：仿真器、环境、学习端接口、雅可比工具；
+- `scripts/vehicle/`：对拍参考生成、吞吐测试、demo、E1 检查；
+- `docs/results/`：已有运行的 JSON 报告，可用来对照。
+
+## 当前状态
+
+| 阶段 | 内容 | 状态 | 依据 |
+|---|---|---|---|
+| E0 | 与 CommonRoad 多体模型对拍，误差 < 5% | ✅ 通过，最差 4.08% | §3.1 |
+| E0 | 单卡吞吐 ≥ 10⁶ 环境步/秒 | ⏳ 未测，需要 GPU | 第 3 步 |
+| demo | 整条 SuperMimic 循环在车辆上学会跟踪 | ✅ 通过：留出参考回报 0.10 → 0.62 | §3.8，`docs/results/vehicle_demo_e2e.json` |
+| E1 | 饱和区雅可比检查 | ❌ 按原定义未通过；8 步梯度在饱和区一致（0.94）；关卡修订待定 | §3.9，`docs/results/vehicle_jacobian_check*.json` |
+
+## 环境
+
+与仓库其余部分相同（见 README 的 Setup）：Python 3.12，`uv sync --group dev`。车辆部分只依赖 torch，**全部可以在 CPU 上跑**；只有吞吐关卡需要 GPU。
+
+- 下文命令都写成 `env -u PYTHONPATH uv run ...`；不用 uv 时，等价于 `PYTHONPATH=src python ...`。
+- 没有显示环境的机器上，如果导入 mujoco 时 EGL 报错，在命令前加 `MUJOCO_GL=disable`（车辆部分不渲染）。
+- 只有重新生成 CommonRoad 参考（第 2 步）时才需要 `uv pip install commonroad-vehicle-models`。仓库已带参考数据，平时不用装。
+
+下面的耗时都是在 4 核 CPU 上实测的。
+
+## 待办
+
+### 1. 测试（约 2–4 分钟）
+
+- [ ] 全套测试
+
+```bash
+env -u PYTHONPATH uv run pytest tests -q
+```
+
+**检查**：CPU 上应为 122 passed，19 skipped（跳过的需要 GPU 或 LAFAN1 数据）。车辆相关的五个文件：
+
+| 文件 | 测什么 |
+|---|---|
+| `test_vehicle_sim.py` | 轮胎公式与 CommonRoad 逐点相等；14 个工况对拍 ≤ 5%；子步数收敛；ABS/ESC 有效；摩擦缩放；批内各行互不影响 |
+| `test_vehicle_env.py` | 回放参考指令能复现参考；终止相对参考判定；指令延迟；ξ 采样；回放缓冲区；重置采样器 |
+| `test_vehicle_e2e.py` | 学习端对每条转移的打分与环境一致；状态表示的接口约定；小规模跑通 demo |
+| `test_vehicle_jacobian.py` | `logged_step` 与环境逐位相等；两种雅可比估计在已知系统上精确；小规模跑通检查脚本 |
+| `test_*_interface.py`、`test_policy_io.py` | G1 golden 回归：接口化重构没有改变 G1 的数值 |
+
+### 2. E0 对拍（约 10 秒）
+
+- [ ] 与 CommonRoad 多体模型的响应对拍
+
+```bash
+env -u PYTHONPATH uv run python -m supermimic.vehicles.validation            # float32，10 子步（GPU 上的设置）
+env -u PYTHONPATH uv run python -m supermimic.vehicles.validation --float64  # 精度对照
+```
+
+**检查**：最后一行 `worst metric 4.08% (gate 5%)`。逐工况的指标见 §3.1 的表。最大的一项是 `sine_v20_a0.070` 的侧向加速度 NRMSE。
+
+- [ ] （可选）重新生成参考数据：只有改了工况定义（`vehicles/maneuvers.py`）或参数时才需要
+
+```bash
+uv pip install commonroad-vehicle-models
+env -u PYTHONPATH uv run python scripts/vehicle/make_commonroad_reference.py --out tests/data/commonroad_mb_reference.pt
+```
+
+约 15 秒。正弦幅值超过 0.07 rad 时，CommonRoad 多体模型自己会失稳发散，脚本会报 `integration failed`。
+
+### 3. E0 吞吐（GPU，约 5 分钟）
+
+- [ ] 在 GPU 上测吞吐
+
+```bash
+env -u PYTHONPATH uv run python scripts/vehicle/bench_sim.py --device cuda --num-envs 4096 16384 65536
+env -u PYTHONPATH uv run python scripts/vehicle/bench_sim.py --device cuda --num-envs 4096 16384 65536 --compile
+```
+
+**检查**：`env` 一列（完整环境步，含执行器、奖励、回放记录、重置）至少有一个规模达到 1,000,000 steps/s，即为通过。把结果填进 §3.1 末尾和 §6 的 E0 行。CPU 参照值：16384 个环境时 eager 约 1.2×10⁵，compile 约 1.7×10⁵。
+
+**不过关时**：先看 `dynamics` 一列。如果动力学本身就不够快，瓶颈在逐元素算子的启动开销：先确认 `--compile` 是否生效，再考虑把子步循环写成 CUDA graph 或 Warp kernel。如果动力学够快而环境慢，瓶颈在环境的记账逻辑（回放写入、重置）。
+
+### 4. 端到端 demo（CPU 约 10 分钟）
+
+- [ ] 跑 demo
+
+```bash
+env -u PYTHONPATH uv run python scripts/vehicle/demo_e2e.py --out logs/vehicle_demo/report.json
+# GPU：--device cuda，可加大 --num-envs
+```
+
+**检查**：
+- 最后打印 `PASSED`，退出码 0；
+- 种子 0 下数字应与 `docs/results/vehicle_demo_e2e.json` 相同：留出参考上的归一化回报 0.104 → 0.623，平均坚持步数 86 → 441，世界模型 8 步误差 0.25；
+- 成功判据写在脚本的 `check()` 里：回报至少翻倍且至少高 0.15，坚持步数至少翻倍，世界模型误差 < 3。
+
+**怎么读日志**：
+- `wm 8-step`：第 100 次迭代起训练世界模型。策略开始学习后（第 300 次迭代），状态分布在变，这个值会先升到 1–3，再降到 0.3 以下，这是正常的；
+- `critic`：应保持在 1 以下。如果一路涨到 10² 以上，说明 critic 在发散，检查 `value_clip` 是否生效（§3.8）；
+- `imag return`：16 步想象回报，应从约 0.67 升到 0.95 以上。
+
+### 5. E1 雅可比检查
+
+- [ ] 默认规模（约 4 分钟）
+
+```bash
+env -u PYTHONPATH uv run python scripts/vehicle/jacobian_check.py --out logs/e1/default.json
+```
+
+- [ ] 大容量（约 17 分钟）
+
+```bash
+env -u PYTHONPATH uv run python scripts/vehicle/jacobian_check.py --hidden 512 512 --updates 12000 --collect 1500 --out logs/e1/large.json
+```
+
+**检查**：
+- 两个配置**目前都会打印 `FAILED`，退出码 1**，这是已知结果（按原定关卡未通过，见 §3.9）；
+- 种子 0 下数字应与 `docs/results/vehicle_jacobian_check.json`、`vehicle_jacobian_check_large.json` 一致。
+
+可选参数：
+- `--save run.pt`：保存世界模型和比较用的雅可比，便于离线分析；
+- `--per-bin`：每档的样本数；
+- `--noise`：行为策略的噪声；
+- `--k`：多步梯度的步数。
+
+**怎么读输出**：
+
+| 输出块 | 含义 | 当前结论 |
+|---|---|---|
+| `8-step normalised error per utilisation bin` | 世界模型开环误差，按附着利用率 u 分档 | 饱和区误差是线性区的 5–11 倍，但大容量模型饱和区的绝对误差（0.09–0.16）低于默认模型线性区的误差 |
+| `one-step Jacobian` 的 `cos`、`cos_*` | 单步雅可比与仿真器有限差分的余弦，整体和按分量分组 | 各档约 0.5–0.6；速度组在饱和区只有 0.17–0.29 |
+| `one-step Jacobian` 的 `*_sign_ok`、`*_n` | 关键灵敏度的符号一致率和有效样本数（只统计仿真器值 ≥ 1e-3 的样本） | 转向 → 侧向加速度：线性区 100%，饱和区约 70%；样本少 |
+| `8-step gradient w.r.t. the first action` | 8 步后的状态对第一步动作的梯度，即 BPTT 用的量 | 大容量：线性区 0.99，接近极限 0.95，越过极限 0.92；默认规模越过极限只有 0.71 |
+| `excluded_nonsmooth` | 两种差分步长结果不一致、被排除的样本数 | 每档 0–4 个 |
+
+**判定**：脚本按原定关卡判定，即饱和区单步余弦 > 0.8，且 8 步误差最高档不超过最低档的 3 倍。§3.9 提出的修订（改用 8 步动作梯度余弦、误差用绝对值）**尚未采用**；采用前要在 §6 里明确改写关卡，再改脚本里的判定。
+
+### 6. 下一步（E1 缓解 → E3/E4）
+
+- [ ] 决定 E1 的关卡是否按 §3.9 修订
+- [ ] 世界模型损失对饱和区样本加权或过采样，速度组加大权重，用 `jacobian_check.py` 复查
+- [ ] 小集成，用方差做不确定性惩罚
+- [ ] E3（视野与频率）和 E4（全库训练），在策略训练里比较大小两种世界模型在极限附近的表现
+
+## 常见问题
+
+- **导入 mujoco 时报 EGL 错误**：加 `MUJOCO_GL=disable`。
+- **demo 或检查脚本比上表慢很多**：多个脚本或测试同时跑会抢 CPU。CPU 上请串行运行。
+- **数字与 `docs/results/` 不一致**：先确认种子和参数都是默认值。CPU 上的结果是确定的；换机器或换 BLAS 后，浮点舍入可能不同，数字会有小差异，但结论不应改变。
+- **开启 ABS/ESC 做 E1**：脚本固定关闭它们（`env_cfg()` 里）。门限逻辑附近的有限差分没有意义；如果要研究开启时的梯度质量，需要另行设计（例如只在远离门限的样本上比较）。

@@ -1,0 +1,261 @@
+{
+  "args": {
+    "seed": 0,
+    "num_envs": 256,
+    "refs": 32,
+    "ref_steps": 500,
+    "collect": 1500,
+    "eval_collect": 350,
+    "updates": 12000,
+    "batch": 512,
+    "lr": 0.0005,
+    "hidden": [
+      512,
+      512
+    ],
+    "noise": 0.3,
+    "per_bin": 60,
+    "k": 8,
+    "out": "docs/results/vehicle_jacobian_check_large.json",
+    "save": null
+  },
+  "wall_clock_s": 995.5,
+  "train_rows": 388809,
+  "nse_8step_by_bin": [
+    {
+      "bin": "0.0-0.3",
+      "windows": 6795,
+      "nse_8step": 0.0146
+    },
+    {
+      "bin": "0.3-0.6",
+      "windows": 6307,
+      "nse_8step": 0.0168
+    },
+    {
+      "bin": "0.6-0.8",
+      "windows": 3384,
+      "nse_8step": 0.0302
+    },
+    {
+      "bin": "0.8-0.9",
+      "windows": 1416,
+      "nse_8step": 0.0735
+    },
+    {
+      "bin": "0.9-1.0",
+      "windows": 1339,
+      "nse_8step": 0.0875
+    },
+    {
+      "bin": ">1.0",
+      "windows": 759,
+      "nse_8step": 0.1622
+    }
+  ],
+  "one_step_by_bin": [
+    {
+      "bin": "0.0-0.3",
+      "n": 57,
+      "excluded_nonsmooth": 3,
+      "cos": 0.5727,
+      "mag_ratio": 1.0579,
+      "cos_action": 0.4553,
+      "cos_velocity": 0.6013,
+      "cos_attitude": 0.7209,
+      "cos_wheels": 0.6254,
+      "cos_acceleration": 0.631,
+      "ay/steer_sign_ok": 1.0,
+      "ay/steer_n": 17,
+      "ay/steer_rel_err": 0.7971,
+      "r/steer_sign_ok": 1.0,
+      "r/steer_n": 17,
+      "r/steer_rel_err": 0.8309,
+      "vy/steer_sign_ok": 1.0,
+      "vy/steer_n": 17,
+      "vy/steer_rel_err": 0.813,
+      "vx/accel_sign_ok": 1.0,
+      "vx/accel_n": 57,
+      "vx/accel_rel_err": 0.2015
+    },
+    {
+      "bin": "0.3-0.6",
+      "n": 60,
+      "excluded_nonsmooth": 0,
+      "cos": 0.5597,
+      "mag_ratio": 0.9466,
+      "cos_action": 0.4842,
+      "cos_velocity": 0.5657,
+      "cos_attitude": 0.7257,
+      "cos_wheels": 0.5152,
+      "cos_acceleration": 0.6294,
+      "ay/steer_sign_ok": 1.0,
+      "ay/steer_n": 19,
+      "ay/steer_rel_err": 0.7724,
+      "r/steer_sign_ok": 1.0,
+      "r/steer_n": 19,
+      "r/steer_rel_err": 0.8183,
+      "vy/steer_sign_ok": 1.0,
+      "vy/steer_n": 19,
+      "vy/steer_rel_err": 0.7788,
+      "vx/accel_sign_ok": 1.0,
+      "vx/accel_n": 60,
+      "vx/accel_rel_err": 0.1886
+    },
+    {
+      "bin": "0.6-0.8",
+      "n": 59,
+      "excluded_nonsmooth": 1,
+      "cos": 0.5627,
+      "mag_ratio": 0.8418,
+      "cos_action": 0.6404,
+      "cos_velocity": 0.4432,
+      "cos_attitude": 0.7283,
+      "cos_wheels": 0.4171,
+      "cos_acceleration": 0.6495,
+      "ay/steer_sign_ok": 1.0,
+      "ay/steer_n": 18,
+      "ay/steer_rel_err": 0.6143,
+      "r/steer_sign_ok": 1.0,
+      "r/steer_n": 18,
+      "r/steer_rel_err": 0.6587,
+      "vy/steer_sign_ok": 1.0,
+      "vy/steer_n": 18,
+      "vy/steer_rel_err": 0.6036,
+      "vx/accel_sign_ok": 1.0,
+      "vx/accel_n": 59,
+      "vx/accel_rel_err": 0.2112
+    },
+    {
+      "bin": "0.8-0.9",
+      "n": 59,
+      "excluded_nonsmooth": 1,
+      "cos": 0.6022,
+      "mag_ratio": 0.7162,
+      "cos_action": 0.733,
+      "cos_velocity": 0.4024,
+      "cos_attitude": 0.7585,
+      "cos_wheels": 0.3758,
+      "cos_acceleration": 0.6974,
+      "ay/steer_sign_ok": 0.9545,
+      "ay/steer_n": 22,
+      "ay/steer_rel_err": 0.6507,
+      "r/steer_sign_ok": 1.0,
+      "r/steer_n": 22,
+      "r/steer_rel_err": 0.7021,
+      "vy/steer_sign_ok": 0.9545,
+      "vy/steer_n": 22,
+      "vy/steer_rel_err": 0.6492,
+      "vx/accel_sign_ok": 1.0,
+      "vx/accel_n": 59,
+      "vx/accel_rel_err": 0.2643
+    },
+    {
+      "bin": "0.9-1.0",
+      "n": 59,
+      "excluded_nonsmooth": 1,
+      "cos": 0.5952,
+      "mag_ratio": 0.6869,
+      "cos_action": 0.7084,
+      "cos_velocity": 0.2912,
+      "cos_attitude": 0.7655,
+      "cos_wheels": 0.38,
+      "cos_acceleration": 0.6755,
+      "ay/steer_sign_ok": 0.7222,
+      "ay/steer_n": 18,
+      "ay/steer_rel_err": 0.8458,
+      "r/steer_sign_ok": 0.7778,
+      "r/steer_n": 18,
+      "r/steer_rel_err": 0.8382,
+      "vy/steer_sign_ok": 0.8125,
+      "vy/steer_n": 16,
+      "vy/steer_rel_err": 0.8222,
+      "vx/accel_sign_ok": 0.9661,
+      "vx/accel_n": 59,
+      "vx/accel_rel_err": 0.3216
+    },
+    {
+      "bin": ">1.0",
+      "n": 59,
+      "excluded_nonsmooth": 1,
+      "cos": 0.6071,
+      "mag_ratio": 0.6011,
+      "cos_action": 0.7866,
+      "cos_velocity": 0.2879,
+      "cos_attitude": 0.7758,
+      "cos_wheels": 0.3529,
+      "cos_acceleration": 0.7104,
+      "ay/steer_sign_ok": 0.6667,
+      "ay/steer_n": 12,
+      "ay/steer_rel_err": 0.9005,
+      "r/steer_sign_ok": 0.6667,
+      "r/steer_n": 12,
+      "r/steer_rel_err": 1.0003,
+      "vy/steer_sign_ok": 0.5833,
+      "vy/steer_n": 12,
+      "vy/steer_rel_err": 1.3564,
+      "vx/accel_sign_ok": 0.9322,
+      "vx/accel_n": 59,
+      "vx/accel_rel_err": 0.3752
+    }
+  ],
+  "kstep_by_bin": [
+    {
+      "bin": "0.0-0.3",
+      "n": 57,
+      "excluded_nonsmooth": 3,
+      "cos": 0.9928,
+      "mag_ratio": 1.0104
+    },
+    {
+      "bin": "0.3-0.6",
+      "n": 57,
+      "excluded_nonsmooth": 3,
+      "cos": 0.9923,
+      "mag_ratio": 0.9997
+    },
+    {
+      "bin": "0.6-0.8",
+      "n": 59,
+      "excluded_nonsmooth": 1,
+      "cos": 0.9868,
+      "mag_ratio": 1.0138
+    },
+    {
+      "bin": "0.8-0.9",
+      "n": 56,
+      "excluded_nonsmooth": 4,
+      "cos": 0.9665,
+      "mag_ratio": 1.0305
+    },
+    {
+      "bin": "0.9-1.0",
+      "n": 60,
+      "excluded_nonsmooth": 0,
+      "cos": 0.9547,
+      "mag_ratio": 1.043
+    },
+    {
+      "bin": ">1.0",
+      "n": 58,
+      "excluded_nonsmooth": 2,
+      "cos": 0.9247,
+      "mag_ratio": 1.0936
+    }
+  ],
+  "saturation": {
+    "one_step_cos_median": 0.5970672720933353,
+    "n": 118,
+    "kstep_cos_median": 0.9431326504671589,
+    "n_k": 118
+  },
+  "gate": {
+    "error_stable": false,
+    "saturation_cos_gt_0_8": false,
+    "passed": false,
+    "failures": [
+      "8-step error not stable across bins: [0.0146, 0.0168, 0.0302, 0.0735, 0.0875, 0.1622]",
+      "one-step Jacobian cosine near saturation 0.597 <= 0.8 (n = 118)"
+    ]
+  }
+}

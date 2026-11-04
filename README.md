@@ -140,6 +140,7 @@ The design documents are in Chinese; a full Chinese version of this README follo
 | [docs/GENERALIZATION.md](docs/GENERALIZATION.md) | Held-out generalisation experiment (g-series): splits, commands, how to read the results |
 | [docs/RESEARCH_DIRECTIONS.md](docs/RESEARCH_DIRECTIONS.md) | Survey: SuperMimic's development, community discussion, derived research directions, and where world-model BPTT transfers |
 | [docs/VEHICLE_PROPOSAL.md](docs/VEHICLE_PROPOSAL.md) | Design proposal: SuperMimic for vehicle limit handling; the E0 vehicle simulator (`src/supermimic/vehicles/`, checked against CommonRoad) and the end-to-end demo `scripts/vehicle/demo_e2e.py` |
+| [docs/VEHICLE_RUNBOOK.md](docs/VEHICLE_RUNBOOK.md) | Vehicle runbook: what to run in order (tests, CommonRoad check, GPU throughput, end-to-end demo, E1 Jacobian check), what to check after each step and how to read the results |
 
 ## Engineering notes
 
