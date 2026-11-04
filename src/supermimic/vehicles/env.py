@@ -36,6 +36,7 @@ from supermimic.vehicles.dynamics import (
     YAW,
     AssistCfg,
     Context,
+    G,
     R,
     VehicleDynamics,
     W,
@@ -64,6 +65,9 @@ class VehicleEnvCfg:
     accel_tau: float = 0.15  # [s] longitudinal (engine / brake) response
     max_delay: int = 3  # [control steps]
     domain_randomization: bool = True
+    # set each episode's road friction to the friction its reference was generated under (needs a library
+    # with seq_mu); the other context parameters stay randomised (VEHICLE_PROPOSAL.md §4, option 1)
+    match_friction: bool = False
     mu_range: tuple[float, float] = (0.6, 1.1)
     tire_stiffness_range: tuple[float, float] = (0.85, 1.15)
     mass_range: tuple[float, float] = (0.9, 1.15)
@@ -144,25 +148,43 @@ class ReferenceLibrary:
     actions: torch.Tensor  # (T, 2)
     lengths: tuple[int, ...]
     bin_size: int = 50
+    util: torch.Tensor | None = None  # (T,) friction utilisation sqrt(ax^2 + ay^2) / (mu g) of the reference
+    seq_mu: tuple[float, ...] | None = None  # road friction each trajectory was generated under
 
     def __post_init__(self):
         self.layout = SequenceLayout.from_lengths(self.lengths, self.bin_size, self.x.device)
+        self.seq_mu_t = None if self.seq_mu is None else torch.tensor(self.seq_mu, device=self.x.device, dtype=self.x.dtype)
 
     def ref(self, idx: torch.Tensor) -> tracking.VehicleRef:
         return tracking.VehicleRef(self.x[idx], self.y[idx], self.yaw[idx], self.v[idx], self.beta[idx], self.r[idx])
 
+    _FIELDS = ("x", "y", "yaw", "v", "beta", "r", "vx", "vy", "delta", "a_act", "actions")
+
     def to(self, device) -> ReferenceLibrary:
-        t = {k: getattr(self, k).to(device) for k in ("x", "y", "yaw", "v", "beta", "r", "vx", "vy", "delta", "a_act", "actions")}
-        return ReferenceLibrary(**t, lengths=self.lengths, bin_size=self.bin_size)
+        t = {k: getattr(self, k).to(device) for k in self._FIELDS}
+        return ReferenceLibrary(**t, lengths=self.lengths, bin_size=self.bin_size, util=None if self.util is None else self.util.to(device), seq_mu=self.seq_mu)
+
+    @classmethod
+    def concat(cls, libs: list[ReferenceLibrary]) -> ReferenceLibrary:
+        """One library holding the trajectories of ``libs`` in order (same bin size; util / seq_mu kept if all have them)."""
+        t = {k: torch.cat([getattr(lib, k) for lib in libs]) for k in cls._FIELDS}
+        util = torch.cat([lib.util for lib in libs]) if all(lib.util is not None for lib in libs) else None
+        seq_mu = sum((lib.seq_mu for lib in libs), ()) if all(lib.seq_mu is not None for lib in libs) else None
+        return cls(**t, lengths=sum((lib.lengths for lib in libs), ()), bin_size=libs[0].bin_size, util=util, seq_mu=seq_mu)
 
     @classmethod
     def generate(cls, cfg: VehicleEnvCfg, num: int = 64, steps: int = 1000, seed: int = 0, device="cpu", params: VehicleParams | None = None,
-                 max_beta: float = 0.12, min_speed: float = 4.0, oversample: float = 2.0) -> ReferenceLibrary:
+                 max_beta: float = 0.12, min_speed: float = 4.0, oversample: float = 2.0, mu: float = 1.0,
+                 ay_frac: tuple[float, float] | None = None) -> ReferenceLibrary:
         """References from a scripted driver under the nominal context and no delay: a slowly varying target
         speed (6-30 m/s) and a lateral-acceleration target (sum of two sinusoids, peak 2-7 m/s^2 per trajectory)
         turned into steering commands through a steady-state understeer approximation. The driver is open-loop
         in yaw, so some candidates leave the stable range; ``oversample`` x ``num`` candidates are simulated and
-        the first ``num`` that keep |sideslip| < ``max_beta`` and speed > ``min_speed`` throughout are kept."""
+        the first ``num`` that keep |sideslip| < ``max_beta`` and speed > ``min_speed`` throughout are kept.
+
+        ``mu`` generates them under that road friction (all else nominal), so they are feasible for it;
+        ``ay_frac`` = (lo, hi) draws each trajectory's lateral-acceleration peak as a fraction of mu g instead
+        of the default 2-7 m/s^2 (e.g. (0.4, 0.95) for references up to the grip limit)."""
         g = torch.Generator(device="cpu").manual_seed(seed)
         rnd = lambda *shape: torch.rand(*shape, generator=g).to(device)
         dyn = VehicleDynamics(params, cfg.dt, cfg.substeps, cfg.assist)
@@ -172,14 +194,15 @@ class ReferenceLibrary:
         s = dyn.initial_state(v0)
         flags = dyn.new_flags(n, device)
         ctx = Context.nominal(n, device)
+        ctx.mu[:] = mu
         act = Actuators(cfg, n, device)
         act.reset(slice(None), torch.zeros(n, ACTION_DIM, device=device), torch.zeros(n, device=device), torch.zeros(n, dtype=torch.long, device=device))
-        ay_peak = 2.0 + 5.0 * rnd(n)
+        ay_peak = 2.0 + 5.0 * rnd(n) if ay_frac is None else mu * G * (ay_frac[0] + (ay_frac[1] - ay_frac[0]) * rnd(n))
         f1, f2 = 0.05 + 0.25 * rnd(n), 0.1 + 0.4 * rnd(n)
         ph1, ph2 = 2 * math.pi * rnd(n), 2 * math.pi * rnd(n)
         w1 = 0.4 + 0.6 * rnd(n)
         v_target = v0.clone()
-        rows = {k: [] for k in ("x", "y", "yaw", "v", "beta", "r", "vx", "vy", "delta", "a_act", "actions")}
+        rows = {k: [] for k in (*cls._FIELDS, "util")}
         for i in range(steps):
             t = i * cfg.dt
             ay_t = ay_peak * (w1 * torch.sin(2 * math.pi * f1 * t + ph1) + (1 - w1) * torch.sin(2 * math.pi * f2 * t + ph2))
@@ -192,7 +215,8 @@ class ReferenceLibrary:
             action = torch.atanh(cmd.clamp(-0.95, 0.95))
             vel = torch.sqrt(s[:, VX] ** 2 + s[:, VY] ** 2)
             for k, v in (("x", s[:, X]), ("y", s[:, Y]), ("yaw", s[:, YAW]), ("v", vel), ("beta", torch.atan2(s[:, VY], s[:, VX].clamp_min(0.1))),
-                         ("r", s[:, R]), ("vx", s[:, VX]), ("vy", s[:, VY]), ("delta", s[:, DELTA]), ("a_act", act.a_act.clone()), ("actions", action)):
+                         ("r", s[:, R]), ("vx", s[:, VX]), ("vy", s[:, VY]), ("delta", s[:, DELTA]), ("a_act", act.a_act.clone()), ("actions", action),
+                         ("util", torch.sqrt(s[:, AX] ** 2 + s[:, AY] ** 2) / (mu * G))):
                 rows[k].append(v.clone())
             sr, ac = act.step(action, s[:, DELTA])
             s, flags = dyn.step(s, flags, sr, ac, ctx)
@@ -202,7 +226,7 @@ class ReferenceLibrary:
         if keep.numel() < num:
             raise RuntimeError(f"only {keep.numel()} of {n} candidate references stayed stable; raise oversample")
         out = {k: v[keep].reshape(num * steps, *v.shape[2:]) for k, v in traj.items()}
-        return cls(**out, lengths=(steps,) * num)
+        return cls(**out, lengths=(steps,) * num, seq_mu=(float(mu),) * num)
 
 
 def preview_goal(lib: ReferenceLibrary, frame: torch.Tensor, pose: torch.Tensor, preview) -> torch.Tensor:
@@ -294,6 +318,12 @@ class VehicleTrackingEnv:
         forced = self.forced_frame[ids]
         i = torch.where(forced >= 0, forced, sampled)
         self._sample_context(ids)
+        if cfg.match_friction:
+            if lib.seq_mu_t is None:
+                raise ValueError("match_friction needs a reference library generated with a friction (seq_mu)")
+            mu = lib.seq_mu_t[lib.layout.step_seq[i]]
+            self.xi[ids, 0] = mu
+            self.ctx.mu[ids] = mu
         vx, vy, yaw = lib.vx[i].clone(), lib.vy[i].clone(), lib.yaw[i].clone()
         x, y = lib.x[i].clone(), lib.y[i].clone()
         if cfg.reset_noise:

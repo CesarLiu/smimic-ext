@@ -145,3 +145,28 @@ def test_observation_and_goal(lib):
     assert st.shape == (3, env.cfg.state_dim)
     torch.testing.assert_close(st[:, X], lib.x[lib.layout.seq_start[:3]])
     torch.testing.assert_close(st[:, YAW], lib.yaw[lib.layout.seq_start[:3]])
+
+
+def test_friction_matched_references_and_episodes():
+    """References generated under a friction carry it (seq_mu) and their friction use (util); with
+    match_friction every episode runs at its reference's friction."""
+    from supermimic.vehicles.dynamics import AssistCfg
+
+    cfg = VehicleEnvCfg(assist=AssistCfg(abs=False, esc=False))
+    parts = [ReferenceLibrary.generate(cfg, num=2, steps=120, seed=k, mu=mu, ay_frac=(0.4, 0.95), oversample=4.0) for k, mu in enumerate((0.5, 1.0))]
+    lib = ReferenceLibrary.concat(parts)
+    assert lib.seq_mu == (0.5, 0.5, 1.0, 1.0) and lib.layout.num_sequences == 4
+    assert lib.util.shape == lib.x.shape and float(lib.util.min()) >= 0.0
+    assert float(parts[0].util.max()) > 0.3  # they use a good part of the low friction
+    env = VehicleTrackingEnv(VehicleEnvCfg(num_envs=40, replay_capacity=20, match_friction=True, assist=cfg.assist), lib, seed=0)
+    ref_mu = lib.seq_mu_t[lib.layout.step_seq[env.frame - 1]]
+    assert torch.equal(env.xi[:, 0], ref_mu) and torch.equal(env.ctx.mu, ref_mu)
+    assert set(env.xi[:, 0].tolist()) == {0.5, 1.0}
+    assert float(env.xi[:, 1].std()) > 0  # the other context parameters stay randomised
+    plain = ReferenceLibrary(**{k: getattr(lib, k) for k in ReferenceLibrary._FIELDS}, lengths=lib.lengths)
+    with pytest.raises(ValueError):
+        VehicleTrackingEnv(VehicleEnvCfg(num_envs=4, replay_capacity=10, match_friction=True), plain)
+
+
+def test_default_references_record_nominal_friction(lib):
+    assert lib.seq_mu == (1.0,) * lib.layout.num_sequences and lib.util is not None

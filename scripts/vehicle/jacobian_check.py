@@ -83,7 +83,7 @@ def summarise(metrics: dict[str, torch.Tensor], bins: torch.Tensor, ok: torch.Te
         row = {"bin": J.bin_label(i), "n": int(m.sum()), "excluded_nonsmooth": int(((bins == i) & ~ok).sum())}
         if m.any():
             for k, v in metrics.items():
-                if k.endswith("_sim") or k.endswith("_wm"):
+                if k.endswith(("_sim", "_wm")):
                     continue
                 vals = v[m]
                 vals = vals[~torch.isnan(vals)]
@@ -145,7 +145,7 @@ def main(argv=None) -> int:
     s0, a0, xi = w.states[0][sel].double(), w.a_exec[0][sel].double(), w.xi[sel].double()
     acts = w.a_exec[:, sel].double()
     dyn = VehicleDynamics(env.dyn.p, cfg.dt, cfg.substeps, cfg.assist)
-    step = lambda s, a, x: J.logged_step(dyn, cfg, s, a, x)  # noqa: E731
+    step = lambda s, a, x: J.logged_step(dyn, cfg, s, a, x)
     Js1, Js2 = J.sim_jacobian(step, s0, a0, xi, err_scale, 1e-2), J.sim_jacobian(step, s0, a0, xi, err_scale, 1e-3)
     smooth = J.compare(Js1, Js2)["cos"] > 0.98
     Jw = J.wm_jacobian(wm, s0.float(), a0.float(), xi.float(), spec.err_scale).double()

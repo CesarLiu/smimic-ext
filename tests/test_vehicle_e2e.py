@@ -83,3 +83,18 @@ def test_demo_runs_end_to_end(tmp_path):
     assert math.isfinite(rep["wm_8step_error"]) and math.isfinite(rep["after"]["normalized_return"])
     last = rep["log"][-1]
     assert all(math.isfinite(last[k]) for k in ("wm_nse_8step", "imag_return", "critic_loss"))
+
+
+def test_limit_study_runs(tmp_path):
+    sys.path.insert(0, str(ROOT / "scripts" / "vehicle"))
+    import limit_study
+
+    out = tmp_path / "limit.json"
+    code = limit_study.main(["--models", "small", "--mu-levels", "0.6", "1.0", "--refs-per-level", "2", "--eval-refs-per-level", "2", "--ref-steps", "120",
+                             "--iters", "40", "--warmup", "10", "--policy-warmup", "20", "--num-envs", "24", "--episode-steps", "40", "--batch", "24",
+                             "--horizon", "5", "--log-every", "20", "--out", str(out)])
+    rep = json.loads(out.read_text())
+    assert code == 0
+    after = rep["results"]["small"]["after"]
+    assert set(after) == {"mu_0.6", "mu_1.0"}
+    assert all(0.0 <= lv["near_limit_survived_share"] <= 1.0 for lv in after.values())
