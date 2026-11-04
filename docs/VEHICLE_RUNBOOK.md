@@ -13,7 +13,7 @@
 |---|---|---|---|
 | E0 | 与 CommonRoad 多体模型对拍，误差 < 5% | ✅ 通过，最差 4.08% | §3.1 |
 | E0 | 单卡吞吐 ≥ 10⁶ 环境步/秒 | ⏳ 未测，需要 GPU | 第 3 步 |
-| demo | 整条 SuperMimic 循环在车辆上学会跟踪 | ✅ 通过：留出参考回报 0.10 → 0.62 | §3.8，`docs/results/vehicle_demo_e2e.json` |
+| demo | 整条 SuperMimic 循环在车辆上学会跟踪 | ✅ 通过：留出参考回报 0.10 → 0.36（加入原始动作约束后；之前为 0.62，见 §3.8） | §3.8，`docs/results/vehicle_demo_e2e.json` |
 | E1 | 饱和区雅可比检查（修订后的关卡） | ✅ 大容量世界模型通过（饱和区 8 步梯度余弦 0.94，误差 0.11）；默认规模未通过 | §3.9，`docs/results/vehicle_jacobian_check*.json` |
 | 第 2 步 | 策略在附着极限附近学跟踪，大小世界模型对比（无关卡，只测量） | ✅ 已测：三档摩擦都学会（回报约 0.1 → 0.4–0.6）；大模型近极限仍在参考上 57 / 96 / 49%，小模型 47 / 49 / 12%；终止率仍有 33–50% | §3.10，`docs/results/vehicle_limit_study.json` |
 
@@ -80,7 +80,7 @@ env -u PYTHONPATH uv run python scripts/vehicle/bench_sim.py --device cuda --num
 
 **不过关时**：先看 `dynamics` 一列。如果动力学本身就不够快，瓶颈在逐元素算子的启动开销：先确认 `--compile` 是否生效，再考虑把子步循环写成 CUDA graph 或 Warp kernel。如果动力学够快而环境慢，瓶颈在环境的记账逻辑（回放写入、重置）。
 
-### 4. 端到端 demo（CPU 约 10 分钟）
+### 4. 端到端 demo（CPU 约 8 分钟）
 
 - [ ] 跑 demo
 
@@ -91,13 +91,13 @@ env -u PYTHONPATH uv run python scripts/vehicle/demo_e2e.py --out logs/vehicle_d
 
 **检查**：
 - 最后打印 `PASSED`，退出码 0；
-- 种子 0 下数字应与 `docs/results/vehicle_demo_e2e.json` 相同：留出参考上的归一化回报 0.104 → 0.623，平均坚持步数 86 → 441，世界模型 8 步误差 0.25；
+- 种子 0 下数字应与 `docs/results/vehicle_demo_e2e.json` 相同：留出参考上的归一化回报 0.104 → 0.356，平均坚持步数 86 → 254，世界模型 8 步误差 0.25；
 - 成功判据写在脚本的 `check()` 里：回报至少翻倍且至少高 0.15，坚持步数至少翻倍，世界模型误差 < 3。
 
 **怎么读日志**：
 - `wm 8-step`：第 100 次迭代起训练世界模型。策略开始学习后（第 300 次迭代），状态分布在变，这个值会先升到 1–3，再降到 0.3 以下，这是正常的；
 - `critic`：应保持在 1 以下。如果一路涨到 10² 以上，说明 critic 在发散，检查 `value_clip` 是否生效（§3.8）；
-- `imag return`：16 步想象回报，应从约 0.67 升到 0.95 以上。
+- `imag return`：16 步想象回报，应从约 0.67 升到 0.9 左右。
 
 ### 5. E1 雅可比检查
 
