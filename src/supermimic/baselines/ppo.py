@@ -144,14 +144,15 @@ def train_ppo(env, policy, critic, spec, heads, cfg: PPOCfg, history: int, obs_h
     ep_ret, ep_len, finished = torch.zeros(n, device=device), torch.zeros(n, device=device), []
     while True:
         steps_due = [m for m in eval_at_steps if env_steps >= m and m not in passed]
-        if eval_fn is not None and (train_s >= next_eval or steps_due):
+        stopping = train_s >= budget_s or (max_updates is not None and upd >= max_updates)
+        if eval_fn is not None and (train_s >= next_eval or steps_due or stopping):
             passed.update(steps_due)
             row = {"time_s": round(train_s, 1), "env_steps": env_steps, "update": upd, **eval_fn(agent.policy)}
             curve.append(row)
             log(row)
             if train_s >= next_eval:
                 next_eval += eval_every_s
-        if train_s >= budget_s or (max_updates is not None and upd >= max_updates):
+        if stopping:
             break
         t0 = time.time()
         buf = {k: [] for k in ("obs", "goal", "critic", "actions", "logp", "values", "rewards", "dones")}

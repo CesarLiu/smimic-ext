@@ -50,6 +50,8 @@ def parse(argv=None):
     ap.add_argument("--methods", nargs="+", default=list(METHODS), choices=METHODS)
     ap.add_argument("--budget-min", type=float, default=30.0, help="training wall-clock per method [min]")
     ap.add_argument("--eval-every-s", type=float, default=120.0)
+    ap.add_argument("--sm-max-iters", type=int, default=None, help="also stop SuperMimic after this many iterations (machine-independent budget)")
+    ap.add_argument("--ppo-max-updates", type=int, default=None, help="also stop PPO after this many updates")
     ap.add_argument("--eval-at-steps", type=float, nargs="*", default=[1e5, 2e5, 5e5, 1e6, 2e6, 5e6, 1e7, 2e7, 5e7, 1e8],
                     help="also evaluate when the simulator-step count first passes these (comparison at equal data)")
     # references (as limit_study.py)
@@ -133,17 +135,18 @@ def train_supermimic(args, lib, run_eval, log) -> tuple[torch.nn.Module, list, d
     wm_m, pol_m = {}, {}
     while True:
         steps_due = [m for m in args.eval_at_steps if it * n >= m and m not in passed]
-        if train_s >= next_eval or train_s >= budget or steps_due:
+        done = train_s >= budget or (args.sm_max_iters is not None and it >= args.sm_max_iters)
+        if train_s >= next_eval or done or steps_due:
             passed.update(steps_due)
             row = {"time_s": round(train_s, 1), "env_steps": it * n, "iter": it, **run_eval(policy)}
             curve.append(row)
             log(f"supermimic {row}  wm 8-step {float(wm_m.get('nse_kstep', float('nan'))):.3f}  imag return {float(pol_m.get('imag_return_undisc', float('nan'))):.3f}")
             if train_s >= next_eval:
                 next_eval += args.eval_every_s
-        if train_s >= budget:
+        if done:
             break
         t0 = time.time()
-        for _ in range(20):  # timing / evaluation granularity
+        for _ in range(20 if args.sm_max_iters is None else min(20, args.sm_max_iters - it)):  # timing / evaluation granularity
             with torch.no_grad():
                 a = policy(hist.flat(), obs["goal"])
                 obs, _r, _t, _tr, info = env.step(a, args.action_noise * torch.randn_like(a))
@@ -169,7 +172,7 @@ def train_ppo_method(args, lib, run_eval, log):
     pcfg = PPOCfg(num_steps=args.ppo_steps, epochs=args.ppo_epochs, minibatches=args.ppo_minibatches, lr=args.ppo_lr, entropy_coef=args.ppo_entropy)
     agent, curve = train_ppo(env, policy, critic, spec, heads, pcfg, args.history, ObsHistory, 60 * args.budget_min, run_eval,
                              args.eval_every_s, log=lambda r: log(f"ppo {r}" if isinstance(r, dict) else r), device=args.device,
-                             eval_at_steps=tuple(int(m) for m in args.eval_at_steps))
+                             eval_at_steps=tuple(int(m) for m in args.eval_at_steps), max_updates=args.ppo_max_updates)
     last = curve[-1]
     return agent.policy, curve, {"updates": last["update"], "env_steps": last["env_steps"], "train_s": last["time_s"]}
 

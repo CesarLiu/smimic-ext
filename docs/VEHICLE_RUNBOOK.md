@@ -352,6 +352,8 @@ CUDA_VISIBLE_DEVICES=3 env -u PYTHONPATH uv run python scripts/vehicle/compare_p
 - `report.json`：曲线、最终评估（每档摩擦的回报、终止率、近极限指标）和 S 弯上逐步的轨迹；
 - 日志最后一张表：两种方法在留出弯道和 S 弯上的最终回报，`ok` 表示跑完了 S 弯，`end` 表示中途终止。
 
+**按迭代数给预算**：墙钟时间预算取决于机器快慢。同一份代码，在会话环境重启后的慢宿主机上，8 分钟只够 SuperMimic 训练 1240 次迭代（§3.11 那次是 2700 次），结果差很多。要在不同机器上复现同样的训练量，用 `--sm-max-iters 2700 --ppo-max-updates 408`，再把 `--budget-min` 设大一些；预算和迭代数哪个先到，就在哪里停。
+
 **评估视频**：`compare_ppo.py` 会把两个训练好的策略存到 `policies.pt`，用它渲染 S 弯视频（三档摩擦依次播放，每档约 8 秒，实时速度；渲染约 2–3 分钟，用 CPU）：
 
 ```bash
