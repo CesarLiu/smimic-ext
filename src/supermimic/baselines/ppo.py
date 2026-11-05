@@ -127,10 +127,11 @@ def critic_inputs(env, spec, heads, lib) -> tuple[torch.Tensor, ...]:
 
 
 def train_ppo(env, policy, critic, spec, heads, cfg: PPOCfg, history: int, obs_hist_cls, budget_s: float, eval_fn=None,
-              eval_every_s: float = 60.0, log=print, device="cpu", max_updates: int | None = None) -> tuple[PPO, list]:
+              eval_every_s: float = 60.0, log=print, device="cpu", max_updates: int | None = None,
+              eval_at_steps: tuple[int, ...] = ()) -> tuple[PPO, list]:
     """Collect ``cfg.num_steps`` per environment, update, repeat until ``budget_s`` seconds of training time
     (evaluation excluded) or ``max_updates``. ``eval_fn(policy) -> dict`` runs every ``eval_every_s`` seconds
-    of training time; returns the agent and the evaluation curve [{time_s, env_steps, update, **metrics}]."""
+    of training time and when the simulator-step count first passes each of ``eval_at_steps``; returns the agent and the evaluation curve [{time_s, env_steps, update, **metrics}]."""
     import time
 
     agent = PPO(policy, critic, int(env.prev_action.shape[-1]), cfg, device)
@@ -139,14 +140,17 @@ def train_ppo(env, policy, critic, spec, heads, cfg: PPOCfg, history: int, obs_h
     noise_half = heads.obs_noise_half().to(device)
     hist = obs_hist_cls(heads, n, history, device)
     hist.reset(torch.arange(n, device=device), obs["policy"])
-    curve, train_s, env_steps, upd, next_eval = [], 0.0, 0, 0, 0.0
+    curve, train_s, env_steps, upd, next_eval, passed = [], 0.0, 0, 0, 0.0, set()
     ep_ret, ep_len, finished = torch.zeros(n, device=device), torch.zeros(n, device=device), []
     while True:
-        if eval_fn is not None and train_s >= next_eval:
+        steps_due = [m for m in eval_at_steps if env_steps >= m and m not in passed]
+        if eval_fn is not None and (train_s >= next_eval or steps_due):
+            passed.update(steps_due)
             row = {"time_s": round(train_s, 1), "env_steps": env_steps, "update": upd, **eval_fn(agent.policy)}
             curve.append(row)
             log(row)
-            next_eval += eval_every_s
+            if train_s >= next_eval:
+                next_eval += eval_every_s
         if train_s >= budget_s or (max_updates is not None and upd >= max_updates):
             break
         t0 = time.time()
