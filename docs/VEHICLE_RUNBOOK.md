@@ -363,6 +363,16 @@ env -u PYTHONPATH uv run python scripts/vehicle/render_scurve.py --policies logs
 
 画面左边是跟随两辆车的俯视镜头（车身、前轮转角、行驶轨迹、参考线，图例里实时显示车速、横向误差和附着利用率，终止时打 ×）；右边是整条弯道、横向误差曲线，以及附着利用率曲线（虚线是参考的，1.0 是附着极限）。
 
+示例视频：[`docs/results/vehicle_compare_ppo_iters_s_curve.mp4`](results/vehicle_compare_ppo_iters_s_curve.mp4)。它来自 CPU 上一次按迭代数给预算的运行（`--sm-max-iters 2700 --ppo-max-updates 408 --ppo-envs 1024`）：SuperMimic 训练 2700 次迭代，用了 69 万仿真步；PPO 训练 408 次更新，用了 1337 万仿真步。两者都跑完了三档摩擦的 S 弯，没有一档中途终止，平均横向误差如下：
+
+| μ | SuperMimic | PPO |
+|---|---|---|
+| 0.5 | 0.24 m | 0.09 m |
+| 0.8 | 0.31 m | 0.13 m |
+| 1.0 | 0.27 m | 0.16 m |
+
+S 弯回报：SuperMimic 依次为 0.86 / 0.82 / 0.80，PPO 依次为 0.98 / 0.96 / 0.92。PPO 的跟踪更紧，但用的仿真数据约是 SuperMimic 的 19 倍。
+
 **怎么读**：
 - 时间曲线回答“同样的 GPU 时间，谁学得更好”，步数曲线回答“同样的数据量，谁学得更好”。SuperMimic 的卖点在后者：它用世界模型生成梯度，样本效率应高得多；PPO 靠大量并行环境追时间；
 - S 弯是泛化测试：训练库里没有这种几何，看两者能否跑完、横向误差多大；
