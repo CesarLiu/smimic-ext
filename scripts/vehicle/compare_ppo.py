@@ -12,8 +12,8 @@ limit that neither saw in training.
 * S-bend: straight, left arc, right arc, straight at ``--scurve-speed`` with the arcs at ``--scurve-ay`` x
   mu g, one per friction level (``ReferenceLibrary.s_curve``).
 
-Writes ``report.json``, ``curves.png`` (learning curves) and ``s_curve.png`` (paths and lateral error) to
-``--out-dir``. One seed; no pass / fail gate.
+Writes ``report.json``, ``curves.png`` (learning curves), ``s_curve.png`` (paths and lateral error) and
+``policies.pt`` (the trained policies, for ``render_scurve.py``) to ``--out-dir``. One seed; no pass / fail gate.
 """
 
 from __future__ import annotations
@@ -273,6 +273,7 @@ def main(argv=None) -> int:
     heads = VehicleHeads(cfg, VehicleTrackingEnv(cfg, lib, device=args.device, record=False).dyn.p.R_w)
     run_eval = make_eval(heads, eval_libs, scurves, args)
     report = {"args": vars(args), "methods": {}, "scurve": {f"mu_{mu}": {} for mu in args.mu_levels}}
+    policies = {}
     for m in args.methods:
         log(f"=== {m}: {args.budget_min} min training budget")
         policy, curve, info = (train_supermimic if m == "supermimic" else train_ppo_method)(args, lib, run_eval, log)
@@ -281,12 +282,14 @@ def main(argv=None) -> int:
         sc = {f"mu_{mu}": evaluate(policy, heads, s, args) for mu, s in zip(args.mu_levels, scurves)}
         traj = {f"mu_{mu}": trajectory(policy, heads, s, args) for mu, s in zip(args.mu_levels, scurves)}
         report["methods"][m] = {**info, "curve": curve, "heldout_final": final, "scurve_final": sc, "scurve_traj": traj}
+        policies[m] = {k: v.detach().cpu() for k, v in policy.state_dict().items()}
         log(f"{m} final: held-out " + "  ".join(f"{k} {v['normalized_return']:.3f}" for k, v in final.items())
             + " | S-bend " + "  ".join(f"{k} {v['normalized_return']:.3f}{' (completed)' if v['termination_rate'] == 0 else ' (terminated)'}" for k, v in sc.items()))
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     report["wall_clock_s"] = round(time.time() - t0, 1)
     (out / "report.json").write_text(json.dumps(report, indent=1))
+    torch.save({"args": vars(args), "policies": policies}, out / "policies.pt")  # for render_scurve.py
     if not args.no_plots:
         plots(report, scurves, out)
     log(f"report: {out / 'report.json'}" + ("" if args.no_plots else f", plots: {out / 'curves.png'}, {out / 's_curve.png'}"))

@@ -44,3 +44,18 @@ def test_compare_ppo_runs(tmp_path):
         assert len(res["curve"]) >= 2 and res["env_steps"] > 0
         assert all(math.isfinite(v["normalized_return"]) for v in res["scurve_final"].values())
         assert set(res["scurve_traj"]) == {"mu_0.5", "mu_1.0"}
+
+
+def test_render_scurve(tmp_path):
+    """The evaluation video renders from compare_ppo's policies.pt (a few frames, GIF, no ffmpeg needed)."""
+    sys.path.insert(0, str(ROOT / "scripts" / "vehicle"))
+    import compare_ppo
+    import render_scurve
+
+    compare_ppo.main(["--budget-min", "0.02", "--eval-every-s", "100", "--eval-at-steps", "--mu-levels", "1.0", "--refs-per-level", "2",
+                      "--eval-refs-per-level", "1", "--ref-steps", "120", "--episode-steps", "40", "--num-envs", "16", "--batch", "16",
+                      "--warmup", "20", "--policy-warmup", "30", "--horizon", "4", "--ppo-envs", "16", "--ppo-steps", "8",
+                      "--out-dir", str(tmp_path), "--no-plots"])
+    out = tmp_path / "s.gif"
+    assert render_scurve.main(["--policies", str(tmp_path / "policies.pt"), "--fps", "1", "--dpi", "40", "--out", str(out)]) == 0
+    assert out.exists() and out.stat().st_size > 1000

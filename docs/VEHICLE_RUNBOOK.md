@@ -352,6 +352,15 @@ CUDA_VISIBLE_DEVICES=3 env -u PYTHONPATH uv run python scripts/vehicle/compare_p
 - `report.json`：曲线、最终评估（每档摩擦的回报、终止率、近极限指标）和 S 弯上逐步的轨迹；
 - 日志最后一张表：两种方法在留出弯道和 S 弯上的最终回报，`ok` 表示跑完了 S 弯，`end` 表示中途终止。
 
+**评估视频**：`compare_ppo.py` 会把两个训练好的策略存到 `policies.pt`，用它渲染 S 弯视频（三档摩擦依次播放，每档约 8 秒，实时速度；渲染约 2–3 分钟，用 CPU）：
+
+```bash
+env -u PYTHONPATH uv run python scripts/vehicle/render_scurve.py --policies logs/compare/seed0/policies.pt --out logs/compare/seed0/s_curve.mp4
+# 只看一档：--mu 1.0；没有 ffmpeg 时自动改写 GIF（也可以直接给 --out ...gif）
+```
+
+画面左边是跟随两辆车的俯视镜头（车身、前轮转角、行驶轨迹、参考线，图例里实时显示车速、横向误差和附着利用率，终止时打 ×）；右边是整条弯道、横向误差曲线，以及附着利用率曲线（虚线是参考的，1.0 是附着极限）。
+
 **怎么读**：
 - 时间曲线回答“同样的 GPU 时间，谁学得更好”，步数曲线回答“同样的数据量，谁学得更好”。SuperMimic 的卖点在后者：它用世界模型生成梯度，样本效率应高得多；PPO 靠大量并行环境追时间；
 - S 弯是泛化测试：训练库里没有这种几何，看两者能否跑完、横向误差多大；
