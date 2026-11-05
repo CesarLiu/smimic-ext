@@ -192,27 +192,45 @@ class ReferenceLibrary:
         of the default 2-7 m/s^2 (e.g. (0.4, 0.95) for references up to the grip limit)."""
         g = torch.Generator(device="cpu").manual_seed(seed)
         rnd = lambda *shape: torch.rand(*shape, generator=g).to(device)
-        dyn = VehicleDynamics(params, cfg.dt, cfg.substeps, cfg.assist)
-        p = dyn.p
         n = max(num, math.ceil(oversample * num))
         v0 = 8.0 + 18.0 * rnd(n)
+        ay_peak = 2.0 + 5.0 * rnd(n) if ay_frac is None else mu * G * (ay_frac[0] + (ay_frac[1] - ay_frac[0]) * rnd(n))
+        f1, f2 = 0.05 + 0.25 * rnd(n), 0.1 + 0.4 * rnd(n)
+        ph1, ph2 = 2 * math.pi * rnd(n), 2 * math.pi * rnd(n)
+        w1 = 0.4 + 0.6 * rnd(n)
+        state = {"v_target": v0.clone()}
+
+        def targets(i, t):
+            ay_t = ay_peak * (w1 * torch.sin(2 * math.pi * f1 * t + ph1) + (1 - w1) * torch.sin(2 * math.pi * f2 * t + ph2))
+            if i % 50 == 0:  # new target speed every second, a bounded random walk
+                state["v_target"] = (state["v_target"] + 4.0 * (rnd(n) - 0.5)).clamp(6.0, 30.0)
+            return ay_t, state["v_target"]
+
+        traj = cls._drive(cfg, v0, targets, steps, mu, device, params)
+        ok = (traj["beta"].abs().amax(1) < max_beta) & (traj["v"].amin(1) > min_speed)
+        keep = ok.nonzero().squeeze(-1)[:num]
+        if keep.numel() < num:
+            raise RuntimeError(f"only {keep.numel()} of {n} candidate references stayed stable; raise oversample")
+        out = {k: v[keep].reshape(num * steps, *v.shape[2:]) for k, v in traj.items()}
+        return cls(**out, lengths=(steps,) * num, seq_mu=(float(mu),) * num)
+
+    @classmethod
+    def _drive(cls, cfg: VehicleEnvCfg, v0: torch.Tensor, targets, steps: int, mu: float, device, params: VehicleParams | None) -> dict:
+        """The scripted driver: ``targets(i, t)`` -> (lateral-acceleration target, speed target), each (n,),
+        turned into actions through a steady-state understeer approximation (open loop in yaw) and a speed
+        P-controller; simulated under the nominal context at road friction ``mu``. -> fields (n, steps, ...)."""
+        dyn = VehicleDynamics(params, cfg.dt, cfg.substeps, cfg.assist)
+        p = dyn.p
+        n = v0.shape[0]
         s = dyn.initial_state(v0)
         flags = dyn.new_flags(n, device)
         ctx = Context.nominal(n, device)
         ctx.mu[:] = mu
         act = Actuators(cfg, n, device)
         act.reset(slice(None), torch.zeros(n, ACTION_DIM, device=device), torch.zeros(n, device=device), torch.zeros(n, dtype=torch.long, device=device))
-        ay_peak = 2.0 + 5.0 * rnd(n) if ay_frac is None else mu * G * (ay_frac[0] + (ay_frac[1] - ay_frac[0]) * rnd(n))
-        f1, f2 = 0.05 + 0.25 * rnd(n), 0.1 + 0.4 * rnd(n)
-        ph1, ph2 = 2 * math.pi * rnd(n), 2 * math.pi * rnd(n)
-        w1 = 0.4 + 0.6 * rnd(n)
-        v_target = v0.clone()
         rows = {k: [] for k in (*cls._FIELDS, "util")}
         for i in range(steps):
-            t = i * cfg.dt
-            ay_t = ay_peak * (w1 * torch.sin(2 * math.pi * f1 * t + ph1) + (1 - w1) * torch.sin(2 * math.pi * f2 * t + ph2))
-            if i % 50 == 0:  # new target speed every second, a bounded random walk
-                v_target = (v_target + 4.0 * (rnd(n) - 0.5)).clamp(6.0, 30.0)
+            ay_t, v_target = targets(i, i * cfg.dt)
             vx = s[:, VX].clamp_min(3.0)
             delta_target = p.L * ay_t / vx**2 * (1 + (vx / cfg.assist.esc_char_speed) ** 2)
             a_req = (1.5 * (v_target - s[:, VX])).clamp(-4.0, 4.0)
@@ -225,13 +243,44 @@ class ReferenceLibrary:
                 rows[k].append(v.clone())
             sr, ac = act.step(action, s[:, DELTA])
             s, flags = dyn.step(s, flags, sr, ac, ctx)
-        traj = {k: torch.stack(v, 1) for k, v in rows.items()}  # (n, steps, ...)
-        ok = (traj["beta"].abs().amax(1) < max_beta) & (traj["v"].amin(1) > min_speed)
-        keep = ok.nonzero().squeeze(-1)[:num]
-        if keep.numel() < num:
-            raise RuntimeError(f"only {keep.numel()} of {n} candidate references stayed stable; raise oversample")
-        out = {k: v[keep].reshape(num * steps, *v.shape[2:]) for k, v in traj.items()}
-        return cls(**out, lengths=(steps,) * num, seq_mu=(float(mu),) * num)
+        return {k: torch.stack(v, 1) for k, v in rows.items()}
+
+    @classmethod
+    def s_curve(cls, cfg: VehicleEnvCfg, speed: float = 15.0, ay_frac: float = 0.8, mu: float = 1.0, lead: float = 1.5, ramp: float = 0.6,
+                hold: float = 1.2, tail: float = 1.5, device="cpu", params: VehicleParams | None = None, max_beta: float = 0.12) -> ReferenceLibrary:
+        """One S-bend at constant ``speed``: straight (``lead`` s), a left arc, a right arc, straight (``tail`` s).
+        Each arc holds the lateral acceleration ``ay_frac`` x mu g for ``hold`` s, entered and left through
+        smooth ``ramp``-s transitions (the switch left -> right takes 2 ramps), so the arc radius is about
+        speed^2 / (ay_frac mu g). Generated by the same scripted driver as ``generate`` at road friction ``mu``,
+        so it is feasible for it; raises if the driver itself leaves the stable range (lower ``ay_frac``)."""
+        A = ay_frac * mu * G
+        seg = [lead, ramp, hold, 2 * ramp, hold, ramp, tail]
+        edges = [sum(seg[:k + 1]) for k in range(len(seg))]
+        steps = int(round(edges[-1] / cfg.dt))
+        v0 = torch.full((1,), float(speed), device=device)
+        smooth = lambda u: 0.5 - 0.5 * math.cos(math.pi * min(max(u, 0.0), 1.0))  # noqa: E731
+
+        def ay_of(t):
+            e = edges
+            if t < e[0]:
+                return 0.0
+            if t < e[1]:
+                return A * smooth((t - e[0]) / ramp)
+            if t < e[2]:
+                return A
+            if t < e[3]:
+                return A * (1 - 2 * smooth((t - e[2]) / (2 * ramp)))
+            if t < e[4]:
+                return -A
+            if t < e[5]:
+                return -A * (1 - smooth((t - e[4]) / ramp))
+            return 0.0
+
+        traj = cls._drive(cfg, v0, lambda i, t: (torch.full((1,), ay_of(t), device=device), v0), steps, mu, device, params)
+        if float(traj["beta"].abs().max()) >= max_beta:
+            raise RuntimeError(f"S-curve at {speed} m/s, {ay_frac} mu g, mu {mu}: the scripted driver loses grip; lower ay_frac or speed")
+        out = {k: v.reshape(steps, *v.shape[2:]) for k, v in traj.items()}
+        return cls(**out, lengths=(steps,), seq_mu=(float(mu),))
 
 
 def preview_goal(lib: ReferenceLibrary, frame: torch.Tensor, pose: torch.Tensor, preview) -> torch.Tensor:

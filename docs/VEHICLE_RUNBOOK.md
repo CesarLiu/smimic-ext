@@ -16,6 +16,7 @@
 | demo | 整条 SuperMimic 循环在车辆上学会跟踪 | ✅ 通过：留出参考回报 0.10 → 0.36（加入原始动作约束后；之前为 0.62，见 §3.8） | §3.8，`docs/results/vehicle_demo_e2e.json` |
 | E1 | 饱和区雅可比检查（修订后的关卡） | ✅ 大容量世界模型通过（饱和区 8 步梯度余弦 0.94，误差 0.11）；默认规模未通过 | §3.9，`docs/results/vehicle_jacobian_check*.json` |
 | 第 2 步 | 策略在附着极限附近学跟踪，大小世界模型对比（无关卡，只测量） | ✅ 已测两次（两台机器）：三档摩擦都学会（回报约 0.1 → 0.38–0.76）；大模型在 12 个对比项里 11 项更好、1 项持平，但单次运行的数字波动很大，需要多种子；终止率仍有 33–50% | §3.10，`docs/results/vehicle_limit_study.json` |
+| E6（部分） | S 弯 demo：SuperMimic 对比 PPO（同一训练库，S 弯为未见过的测试） | 🔧 已实现，CPU 上冒烟测试和 8 分钟稳定性运行通过；待在 H200 上正式跑 | 第 7 步 |
 
 ## 环境
 
@@ -31,7 +32,7 @@
 
 这样做的原因：这些脚本训练的都是小网络，PyTorch 默认每个核开一个线程，线程同步的开销远大于计算本身。早期版本的脚本不设限，在 192 核机器上会占满整台机器、几乎卡死，E1 默认规模跑了 1949 s，4 核机器上只要 229 s（实现见 `src/supermimic/vehicles/threads.py`）。在 4 核机器上，默认值就是 4，与之前的结果逐位相同。
 
-**哪些脚本用 GPU**：`bench_sim.py`、`demo_e2e.py` 和 `limit_study.py` 支持 `--device cuda`；`jacobian_check.py` 和验证脚本只在 CPU 上跑。
+**哪些脚本用 GPU**：`bench_sim.py`、`demo_e2e.py`、`limit_study.py` 和 `compare_ppo.py` 支持 `--device cuda`；`jacobian_check.py` 和验证脚本只在 CPU 上跑。
 
 ## H200 服务器上的完整命令（192 核 + GPU）
 
@@ -49,7 +50,7 @@ env -u PYTHONPATH uv run pytest tests -q
 env -u PYTHONPATH uv run python -m supermimic.vehicles.validation
 ```
 
-预期：`134 passed, 19 skipped`；`worst metric 4.08% (gate 5%)`。
+预期：`136 passed, 19 skipped`；`worst metric 4.08% (gate 5%)`。
 
 **② GPU：吞吐和 demo（各几分钟）**
 
@@ -111,7 +112,7 @@ taskset -c 32-39 env -u PYTHONPATH uv run python scripts/vehicle/demo_e2e.py --o
 git pull
 nproc; nvidia-smi --query-gpu=name,memory.total --format=csv
 mkdir -p logs/limit logs/bench logs/vehicle_demo
-env -u PYTHONPATH uv run pytest tests -q -x     # 预期 134 passed, 19 skipped
+env -u PYTHONPATH uv run pytest tests -q -x     # 预期 136 passed, 19 skipped
 ```
 
 **② 可选：T4 上的 GPU 检查（几分钟）**
@@ -172,7 +173,7 @@ env -u PYTHONPATH uv run python scripts/vehicle/limit_seeds_summary.py logs/limi
 env -u PYTHONPATH uv run pytest tests -q
 ```
 
-**检查**：CPU 上应为 134 passed，19 skipped（跳过的需要 GPU 或 LAFAN1 数据）。车辆相关的五个文件：
+**检查**：CPU 上应为 136 passed，19 skipped（跳过的需要 GPU 或 LAFAN1 数据）。车辆相关的五个文件：
 
 | 文件 | 测什么 |
 |---|---|
@@ -180,6 +181,7 @@ env -u PYTHONPATH uv run pytest tests -q
 | `test_vehicle_env.py` | 回放参考指令能复现参考；终止相对参考判定；指令延迟；ξ 采样；回放缓冲区；重置采样器；按摩擦生成参考；原始动作截断与越界惩罚；仿真器非有限值时终止 |
 | `test_vehicle_e2e.py` | 学习端对每条转移的打分与环境一致；状态表示的接口约定；小规模跑通 demo 和极限研究 |
 | `test_vehicle_jacobian.py` | `logged_step` 与环境逐位相等；两种雅可比估计在已知系统上精确；小规模跑通检查脚本 |
+| `test_ppo.py` | PPO 的 GAE 与手算一致；SuperMimic 对比 PPO 的脚本小规模跑通 |
 | `test_*_interface.py`、`test_policy_io.py` | G1 golden 回归：接口化重构没有改变 G1 的数值 |
 
 ### 2. E0 对拍（约 10 秒）
@@ -325,7 +327,50 @@ CUDA_VISIBLE_DEVICES=3 env -u PYTHONPATH uv run python scripts/vehicle/limit_stu
 - “仍在参考上的比例”是策略在这些步上尚未终止的比例，横向 / 航向 / 侧偏误差只在这些步上平均，所以撑得更久的策略会在更难的段上被计入误差（幸存者偏差）；
 - 每档只有 6 条留出参考，终止率的分辨率是 1/6。
 
-### 7. 下一步（E3/E4）
+### 7. S 弯 demo：SuperMimic 对比 PPO（H200，约 1.2 小时）
+
+- [ ] 在随机弯道库上分别训练 SuperMimic 和 PPO，在留出弯道和一条近极限 S 弯上比较
+
+**设定**（`scripts/vehicle/compare_ppo.py`）：
+- **训练集**：与第 6 步相同的随机弯道库（三档摩擦，侧向加速度峰值 40–95% μg，回合摩擦与参考一致，ABS/ESC 关）。两种方法都**没见过 S 弯**。
+- **S 弯**（`ReferenceLibrary.s_curve`）：15 m/s 匀速，直道 → 左弧 → 右弧 → 直道。弧上侧向加速度 0.7μg，由同一个脚本驾驶员生成，实际附着利用率最高 0.97，390 步里约 155 步超过 0.8。每档摩擦一条。
+- **相同的部分**：环境、观测、奖励、终止、ξ 随机化、重置采样器，以及网络结构。PPO 的 actor 就是 SuperMimic 的 `Policy`，外加一个可学的动作标准差；critic 就是 SuperMimic 的 `Critic`，输入同样的特权信息。
+- **不同的部分**：SuperMimic 用大世界模型、256 个环境（与第 6 步相同）；PPO 用 4096 个环境，因为无模型方法需要更多样本（`src/supermimic/baselines/ppo.py`：裁剪目标、GAE、按 KL 自适应学习率，与 rsl_rl 的做法相同）。
+- **预算**：两者各给相同的训练墙钟时间（`--budget-min`，不含评估时间）。同时记录两条曲线：回报对训练时间，回报对仿真步数。
+
+```bash
+mkdir -p logs/compare
+CUDA_VISIBLE_DEVICES=3 env -u PYTHONPATH uv run python scripts/vehicle/compare_ppo.py --device cuda --budget-min 30 \
+    --out-dir logs/compare/seed0 | tee logs/compare/seed0.log
+```
+
+评估每 2 分钟一次（`--eval-every-s`）。总耗时约 2 × 30 分钟训练加上评估时间。
+
+**输出**（`logs/compare/seed0/`）：
+- `curves.png`：学习曲线，上排是留出弯道，下排是 S 弯；左列横轴是训练时间，右列是仿真步数；
+- `s_curve.png`：每档摩擦一列，上面是参考和两个策略的路径（× 表示在那里终止），下面是横向误差随时间的变化；
+- `report.json`：曲线、最终评估（每档摩擦的回报、终止率、近极限指标）和 S 弯上逐步的轨迹；
+- 日志最后一张表：两种方法在留出弯道和 S 弯上的最终回报，`ok` 表示跑完了 S 弯，`end` 表示中途终止。
+
+**怎么读**：
+- 时间曲线回答“同样的 GPU 时间，谁学得更好”，步数曲线回答“同样的数据量，谁学得更好”。SuperMimic 的卖点在后者：它用世界模型生成梯度，样本效率应高得多；PPO 靠大量并行环境追时间；
+- S 弯是泛化测试：训练库里没有这种几何，看两者能否跑完、横向误差多大；
+- 这是单种子。§3.10 的经验是，单次运行的数字波动很大，结论要靠多种子（换 `--seed`，再比较）。
+
+**已知局限**：
+- **PPO 没有调过参**：我只在 CPU 上做了短时间运行，确认它会学，长时间也不发散。超参数取 rsl_rl 的常用默认值（每次更新 32 步、5 个 epoch、4 个 minibatch、学习率 3e-4、KL 目标 0.01、初始 std 约 0.6）。如果 PPO 明显不如预期，先试 `--ppo-envs 16384`、`--ppo-entropy 0.001`；
+- **SuperMimic 的设置是在 2500 次迭代内验证过的**。30 分钟预算下，它会跑过这个范围（学习率不衰减）；
+- 时间预算对两者是同一张 GPU，但 SuperMimic 只用 256 个环境，GPU 利用率低；加大 `--num-envs` 和 `--batch` 是另一组未验证的配置。
+
+**冒烟测试**（CPU，3 分钟，只检查流程能跑通）：
+
+```bash
+env -u PYTHONPATH uv run python scripts/vehicle/compare_ppo.py --budget-min 0.5 --eval-every-s 15 --mu-levels 0.5 1.0 \
+    --refs-per-level 2 --eval-refs-per-level 2 --ref-steps 200 --episode-steps 80 --num-envs 32 --batch 32 --warmup 10 \
+    --policy-warmup 20 --horizon 6 --ppo-envs 64 --ppo-steps 16 --out-dir logs/compare/smoke
+```
+
+### 8. 下一步（E3/E4）
 
 - [x] E1 的关卡按 §3.9 修订（2026-11-04）
 - [x] 第 2 步：策略能否在附着极限附近学好（§3.10）。能；大世界模型明显更好，此后默认用大模型

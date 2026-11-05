@@ -505,7 +505,7 @@ E1 回答的是“梯度对不对”，这一步回答“策略能不能在极�
 | E3 视野与频率 | H ∈ {16, 32, 64}，控制频率 ∈ {25, 50} Hz，有无 critic | 复现论文 §4.3 的结论：有 critic 时短视野够用 | 3 天 |
 | E4 全库 | 全部参考 × 全部 ξ；回报重置加附着极限加权 | 训练集失败率 < 1%；记录 GPU·h 到达目标回报 | 1–2 周 |
 | E5 泛化与裕度 | 三种 held-out；扰动裕度（v_y、r 冲击、μ 阶跃）；模型最坏方向与随机方向的对比（复用 `eval_margins.py` 的协议） | 报告即可，无关卡 | 1 周 |
-| E6 基线 | NMPC（acados，单轨加 Pacejka，用辨识过的参数）、PPO-Sim（同样的环境、观测、奖励、网络、两倍环境数）、PPO-WM、无 critic 版本 | 同等 GPU·h 下的 time-to-quality 曲线；推理耗时（策略 µs 级 vs NMPC ms 级） | 1 周 |
+| E6 基线 | NMPC（acados，单轨加 Pacejka，用辨识过的参数）、PPO-Sim（同样的环境、观测、奖励、网络、两倍环境数）、PPO-WM、无 critic 版本 | 同等 GPU·h 下的 time-to-quality 曲线；推理耗时（策略 µs 级 vs NMPC ms 级）。**PPO-Sim 已实现**（`src/supermimic/baselines/ppo.py`，`scripts/vehicle/compare_ppo.py`：同一随机弯道库训练，留出弯道和未见过的近极限 S 弯上测试，记录回报对时间和对步数两条曲线；runbook 第 7 步），待在 H200 上跑 | 1 周 |
 | E7（可选）真车 | 1:10 平台（F1TENTH 类）或 HIL；用真实数据微调 ξ 或世界模型（论文 §6 提出的系统辨识方向） | — | 视资源 |
 
 主训练（E4）的算力粗估：车辆仿真比人形便宜，世界模型也小一个数量级，单卡 H100 级别几个小时应该能跑完一次。这是估计，E2 跑完后再根据实测修正。
