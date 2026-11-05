@@ -16,7 +16,7 @@
 | demo | 整条 SuperMimic 循环在车辆上学会跟踪 | ✅ 通过：留出参考回报 0.10 → 0.36（加入原始动作约束后；之前为 0.62，见 §3.8） | §3.8，`docs/results/vehicle_demo_e2e.json` |
 | E1 | 饱和区雅可比检查（修订后的关卡） | ✅ 大容量世界模型通过（饱和区 8 步梯度余弦 0.94，误差 0.11）；默认规模未通过 | §3.9，`docs/results/vehicle_jacobian_check*.json` |
 | 第 2 步 | 策略在附着极限附近学跟踪，大小世界模型对比（无关卡，只测量） | ✅ 已测两次（两台机器）：三档摩擦都学会（回报约 0.1 → 0.38–0.76）；大模型在 12 个对比项里 11 项更好、1 项持平，但单次运行的数字波动很大，需要多种子；终止率仍有 33–50% | §3.10，`docs/results/vehicle_limit_study.json` |
-| E6（部分） | S 弯 demo：SuperMimic 对比 PPO（同一训练库，S 弯为未见过的测试） | 🔧 已实现，CPU 上冒烟测试和 8 分钟稳定性运行通过；待在 H200 上正式跑 | 第 7 步 |
+| E6（部分） | S 弯 demo：SuperMimic 对比 PPO（同一训练库，S 弯为未见过的测试） | ✅ CPU 上跑过一次（各 8 分钟，单种子）：相同数据量下 SuperMimic 样本效率高约 3–4 倍；相同时间下 PPO 更好（0.96 对 0.81）；两者都跑完 S 弯。待 H200、多种子 | §3.11，第 7 步，`docs/results/vehicle_compare_ppo_cpu*` |
 
 ## 环境
 
@@ -356,6 +356,12 @@ CUDA_VISIBLE_DEVICES=3 env -u PYTHONPATH uv run python scripts/vehicle/compare_p
 - 时间曲线回答“同样的 GPU 时间，谁学得更好”，步数曲线回答“同样的数据量，谁学得更好”。SuperMimic 的卖点在后者：它用世界模型生成梯度，样本效率应高得多；PPO 靠大量并行环境追时间；
 - S 弯是泛化测试：训练库里没有这种几何，看两者能否跑完、横向误差多大；
 - 这是单种子。§3.10 的经验是，单次运行的数字波动很大，结论要靠多种子（换 `--seed`，再比较）。
+
+**CPU 上的参照结果**（§3.11，各 8 分钟，PPO 1024 个环境，`docs/results/vehicle_compare_ppo_cpu*`）：
+- 相同数据量：约 50 万步时 SuperMimic 0.78、PPO 0.39；PPO 要约 200 万步才到 0.79；
+- 相同时间结束时：留出弯道 SuperMimic 0.81、PPO 0.96；S 弯上两者都跑完，PPO 横向误差约为 SuperMimic 的一半到三分之一。
+
+H200 上 PPO 的环境数多 4 倍，SuperMimic 的设置不变，预计 PPO 在时间曲线上的优势会更大，步数曲线的关系应该不变。
 
 **已知局限**：
 - **PPO 没有调过参**：我只在 CPU 上做了短时间运行，确认它会学，长时间也不发散。超参数取 rsl_rl 的常用默认值（每次更新 32 步、5 个 epoch、4 个 minibatch、学习率 3e-4、KL 目标 0.01、初始 std 约 0.6）。如果 PPO 明显不如预期，先试 `--ppo-envs 16384`、`--ppo-entropy 0.001`；
