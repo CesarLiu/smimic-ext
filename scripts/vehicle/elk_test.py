@@ -1,18 +1,21 @@
-"""Elk test (moose test) demo: an ISO 3888-2-style obstacle-avoidance lane change, driven by the trained policies and
+"""Elk test (moose test) demo: the ISO 3888-2 obstacle-avoidance lane change, driven by the trained policies and
 the NMPC baselines at several entry speeds, scored against the cones.
 
     PYTHONPATH=src python scripts/vehicle/elk_test.py --policies logs/compare/seed0/policies.pt --out-dir logs/elk
 
-The track (``supermimic.vehicles.elk``): lanes 12 / 13.5 / 11 / 12.5 / 12 m with a 1 m offset and widths 1.1 b + 0.25,
-1.2 b + 0.25, 1.3 b + 0.25 (b = 1.8 m); the numbers are from memory, not checked against the (paywalled) standard.
-The policies were trained on random curves and have never seen this manoeuvre. Every method gets the lane-centre
-reference at the case's speed; a run passes when it is not terminated and no corner of the body footprint leaves a
-lane while inside that lane's length. Cases: dry road (``--dry-kmh``) and wet road (``--wet-kmh``, mu ``--wet-mu``),
-each at several entry speeds; the highest passed speed per method is the usual moose-test score.
+The track (``supermimic.vehicles.elk``): sections 12 / 13.5 / 11 / 12.5 / 12 m; lanes 1.1 b + 0.25, b + 1 (1 m gap to the
+entry lane, so about 3.5 m to the left) and 1.3 b + 0.25 (at least 3 m) wide, b = 1.8 m. Taken from secondary
+sources, not the standard itself; ``elk.py`` lists what is uncertain.
+The policies were trained on random curves and have never seen this manoeuvre. Every method gets the same
+reference (the best line through the cones, as driven by the privileged NMPC) at the case's speed. A run passes when
+it is not terminated and touches no cone (the standard's "no cone displaced"; cone size and spacing assumed);
+overhang steps (a body corner outside a lane line) are reported as a stricter measure. Cases: dry road (``--dry-kmh``)
+and wet road (``--wet-kmh``, mu ``--wet-mu``), each at several entry speeds; the highest passed speed per method is
+the usual moose-test score. A speed only becomes a case if the privileged NMPC passes it itself.
 
-The references are what the privileged NMPC achieves on the ideal lane-centre path (see ``elk.py``), which needs
-casadi; they are cached in ``--refs-cache`` (committed in ``docs/results``) so that the policies alone can be
-evaluated without it. ``--eval-noise`` / ``--eval-delay`` / ``--eval-mismatch`` as in ``compare_ppo.py``.
+Generating the references needs casadi (best line and NMPC); they are cached in ``--refs-cache`` (committed in
+``docs/results``) so that the policies alone can be evaluated without it. ``--eval-noise`` / ``--eval-delay`` /
+``--eval-mismatch`` as in ``compare_ppo.py``.
 Writes ``report.json``, ``elk_paths.png`` and ``elk.mp4`` to ``--out-dir``.
 """
 
@@ -33,7 +36,7 @@ import render_scurve
 from compare_ppo import COLORS, networks
 from limit_study import env_cfg
 
-from supermimic.vehicles.elk import ElkTrack, elk_reference
+from supermimic.vehicles.elk import ElkTrack, best_line, elk_reference
 from supermimic.vehicles.env import ReferenceLibrary, VehicleTrackingEnv
 from supermimic.vehicles.learner import VehicleHeads
 from supermimic.vehicles.threads import add_threads_arg, limit_threads
@@ -46,9 +49,9 @@ def parse(argv=None):
     ap.add_argument("--policies", default=None, help="policies.pt written by compare_ppo.py (SuperMimic / PPO)")
     ap.add_argument("--methods", nargs="+", default=None, choices=METHODS, help="default: the policies in --policies, plus nmpc_onboard if casadi is installed")
     ap.add_argument("--dry-mu", type=float, default=1.0)
-    ap.add_argument("--dry-kmh", type=float, nargs="*", default=[60, 80, 100, 110, 120, 130])
+    ap.add_argument("--dry-kmh", type=float, nargs="*", default=[40, 45, 50, 55, 60, 65, 70, 75])
     ap.add_argument("--wet-mu", type=float, default=0.5)
-    ap.add_argument("--wet-kmh", type=float, nargs="*", default=[40, 50, 60, 70, 80, 90])
+    ap.add_argument("--wet-kmh", type=float, nargs="*", default=[30, 35, 40, 45, 50])
     ap.add_argument("--refs-cache", default="docs/results/vehicle_elk_refs.pt", help="references: loaded when present (no casadi needed), else generated and saved here")
     ap.add_argument("--eval-noise", action="store_true")
     ap.add_argument("--eval-delay", type=int, default=0)
@@ -84,13 +87,22 @@ def get_cases(args, cfg):
     wanted = [(args.dry_mu, k) for k in args.dry_kmh] + [(args.wet_mu, k) for k in args.wet_kmh]
     path = Path(args.refs_cache)
     blob = torch.load(path, map_location="cpu") if path.exists() else {}
-    cases, new = [], False
+    cases, new, line = [], False, None
     for mu, kmh in wanted:
         key = ref_key(mu, kmh)
         if key not in blob:
             print(f"generating the reference for mu {mu}, {kmh:.0f} km/h (privileged NMPC, needs casadi)", flush=True)
             try:
-                lib, tr = elk_reference(cfg, kmh / 3.6, mu=mu, max_dev=0.5)
+                if line is None:
+                    from supermimic.vehicles.params import VehicleParams
+
+                    p = VehicleParams()
+                    tr0 = ElkTrack()
+                    tr0._front, tr0._rear = p.a + tr0.front_overhang, p.b + tr0.rear_overhang
+                    line = best_line(tr0)
+                    print(f"least-curvature line: peak curvature {line[2]:.4f} 1/m (lateral acceleration 1 g at {3.6 * (9.81 / line[2]) ** 0.5:.0f} km/h)", flush=True)
+                lib, tr = elk_reference(cfg, kmh / 3.6, mu=mu)
+                print(f"  line clearance {tr.clearance:.2f} m", flush=True)
             except RuntimeError as e:  # the NMPC cannot drive the track this fast: no reference, no case
                 print(f"  skipped: {e}", flush=True)
                 continue
@@ -158,19 +170,24 @@ def main(argv=None) -> int:
                 policy.eval()
                 out = render_scurve.drive(policy, heads, lib, run)
             out = cut(out, n_end)
-            hits = tr.hits(out["x"], out["y"], out["yaw"])
-            out["hits"] = [sum(1 for h in hits[: i + 1] if h) for i in range(len(hits))]
+            touched = tr.cone_hits(out["x"], out["y"], out["yaw"])
+            seen, cum = set(), []
+            for tset in touched:
+                seen |= tset
+                cum.append(len(seen))
+            out["hits"] = cum  # cones touched so far (for the video)
+            overhang = sum(1 for h in tr.hits(out["x"], out["y"], out["yaw"]) if h)
             runs[m] = out
             lat = [abs(v) for v in out["lat"]]
             completed = not out["terminated"] and len(out["x"]) >= n_end
-            res[m] = {"completed": completed, "passed": bool(completed and out["hits"][-1] == 0), "hit_steps": out["hits"][-1], "steps": len(out["x"]),
+            res[m] = {"completed": completed, "passed": bool(completed and not seen), "cones_hit": len(seen), "overhang_steps": overhang, "steps": len(out["x"]),
                       "max_lateral_error_m": max(lat), "mean_lateral_error_m": sum(lat) / len(lat), "max_friction_use": max(out["util"])}
         print(f"mu {mu}, {kmh:.0f} km/h (reference friction use up to {float(lib.util.max()):.2f}): " +
               "  ".join(f"{m} {'PASS' if r['passed'] else ('HIT cones' if r['completed'] else 'LEFT TRACK')}" for m, r in res.items()), flush=True)
-        report["cases"].append({"mu": mu, "kmh": kmh, "reference_util_max": float(lib.util.max()), "results": res})
+        report["cases"].append({"mu": mu, "kmh": kmh, "reference_util_max": float(lib.util.max()), "line_clearance_m": tr.clearance, "results": res})
         ref = {"x": lib.x.cpu().tolist()[:n_end], "y": lib.y.cpu().tolist()[:n_end], "util": lib.util.cpu().tolist()[:n_end]}
         lat_max = max(max(abs(v) for v in r["lat"]) for r in runs.values())
-        segments.append({"mu": mu, "kmh": kmh, "layout": "elk", "ref": ref, "runs": runs, "length": n_end, "cones": tr.cones(), "y_mid": tr.offset / 2,
+        segments.append({"mu": mu, "kmh": kmh, "layout": "elk", "ref": ref, "runs": runs, "length": n_end, "cones": tr.cones(), "y_mid": tr.lanes()[1][2] / 2,
                          "lat_lim": (-max(0.6, 1.15 * lat_max), max(0.6, 1.15 * lat_max)), "track": tr,
                          "title": f"Elk test, μ = {mu}, entry speed {kmh:.0f} km/h ({kmh / 3.6:.1f} m/s)   policies trained on random curves, never on this manoeuvre"})
     # highest passed speed per method and friction
@@ -209,10 +226,10 @@ def plots(segments, path: Path):
         ax.plot(ref["x"], ref["y"], "--", color="0.6", lw=1, label="reference")
         ax.plot([c[0] for c in seg["cones"]], [c[1] for c in seg["cones"]], "^", color="#ff8c00", ms=5, mec="k", mew=0.5)
         for m, r in seg["runs"].items():
-            ax.plot(r["x"], r["y"], color=COLORS[m], lw=1.6, label=f"{render_scurve.NAMES[m]}" + (" (terminated)" if r["terminated"] else (" (hit)" if r["hits"][-1] else "")))
+            ax.plot(r["x"], r["y"], color=COLORS[m], lw=1.6, label=f"{render_scurve.NAMES[m]}" + (" (terminated)" if r["terminated"] else (f" ({r['hits'][-1]} cones)" if r["hits"][-1] else "")))
             if r["terminated"]:
                 ax.plot(r["x"][-1], r["y"][-1], "x", color=COLORS[m], ms=10, mew=2)
-        ax.set_ylim(-2.2, 3.2)
+        ax.set_ylim(-1.8, 5.5)
         ax.set_ylabel("y [m]")
         ax.set_title(f"μ = {seg['mu']}, {seg['kmh']:.0f} km/h", fontsize=9, loc="left")
         ax.grid(alpha=0.25)

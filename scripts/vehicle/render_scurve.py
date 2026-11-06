@@ -178,7 +178,7 @@ def render(segments, params, args, out: Path) -> Path:
             ended = r["terminated"] and k >= len(r["x"]) - 1
             state = "TERMINATED" if ended else f"{r['speed'][i]:4.1f} m/s   lateral error {r['lat'][i]:+5.2f} m   friction use {r['util'][i]:4.2f}"
             if "hits" in r and not ended:
-                state += "   cones: " + ("HIT" if r["hits"][i] > 0 else "clear")
+                state += "   cones: " + (f"{r['hits'][i]} hit" if r["hits"][i] > 0 else "clear")
             ax_cam.plot([], [], color=COLORS[m], lw=3, label=f"{NAMES[m]}: {state}")
             if ended:
                 ax_cam.plot(r["x"][i], r["y"][i], "x", color=COLORS[m], ms=16, mew=3, zorder=5)
