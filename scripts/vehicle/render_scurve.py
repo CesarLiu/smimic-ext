@@ -2,6 +2,9 @@
 
     PYTHONPATH=src python scripts/vehicle/render_scurve.py --policies logs/compare/seed0/policies.pt --out logs/compare/seed0/s_curve.mp4
 
+The NMPC baseline drives too when the run included it, or with ``--nmpc`` (needs ``casadi``) for runs made
+without it.
+
 Each policy drives the S-bend deterministically (nominal context, no noise) at every friction level of the run,
 one after the other in the video. Left: a camera following the cars (body outline, steered front wheels,
 trail, reference line). Right: the whole bend, the lateral error and the friction use sqrt(ax^2 + ay^2) / (mu g)
@@ -21,17 +24,17 @@ from types import SimpleNamespace
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from compare_ppo import networks
+from compare_ppo import COLORS, networks
 from demo_e2e import ObsHistory
 from limit_study import env_cfg
 
 from supermimic.vehicles import tracking
 from supermimic.vehicles.dynamics import AX, AY, DELTA, VX, VY, YAW, X, Y
 from supermimic.vehicles.env import ReferenceLibrary, VehicleTrackingEnv
+from supermimic.vehicles.learner import VehicleHeads
 from supermimic.vehicles.threads import add_threads_arg, limit_threads
 
-COLORS = {"supermimic": "#1f77b4", "ppo": "#d62728"}
-NAMES = {"supermimic": "SuperMimic", "ppo": "PPO"}
+NAMES = {"supermimic": "SuperMimic", "ppo": "PPO", "nmpc": "NMPC"}
 
 
 def parse(argv=None):
@@ -42,14 +45,17 @@ def parse(argv=None):
     ap.add_argument("--fps", type=int, default=25, help="video frame rate; the simulation runs at 50 Hz, shown in real time")
     ap.add_argument("--dpi", type=int, default=100)
     ap.add_argument("--view", type=float, default=36.0, help="width of the following camera's view [m]")
+    ap.add_argument("--nmpc", action="store_true", help="add the NMPC baseline even if the run did not include it")
+    ap.add_argument("--nmpc-friction", default="known", choices=["known", "nominal"], help="with --nmpc: whether NMPC knows the road friction")
     ap.add_argument("--device", default="cpu")
     add_threads_arg(ap)
     return ap.parse_args(argv)
 
 
 @torch.no_grad()
-def drive(policy, heads, lib: ReferenceLibrary, args) -> dict:
-    """Deterministic play from the reference's start; per-step pose, steering, errors and friction use."""
+def drive(policy, heads, lib: ReferenceLibrary, args, controller=None) -> dict:
+    """Deterministic play from the reference's start; per-step pose, steering, errors and friction use.
+    ``controller(env) -> actions`` replaces the policy when given."""
     length = int(lib.lengths[0])
     env = VehicleTrackingEnv(env_cfg(args, 1, 2, train=False), lib, device=args.device, record=False)
     env.forced_xi = torch.tensor([1.0, 1.0, 1.0, 0.0, 0.0])
@@ -72,7 +78,7 @@ def drive(policy, heads, lib: ReferenceLibrary, args) -> dict:
     out["terminated"] = False
     for _ in range(length - 1):
         ref = lib.ref(env.frame.clone())
-        obs, _r, term, _trunc, info = env.step(policy(hist.flat(), obs["goal"]))
+        obs, _r, term, _trunc, info = env.step(policy(hist.flat(), obs["goal"]) if controller is None else controller(env))
         if info["done"][0]:
             out["terminated"] = bool(term[0])
             break
@@ -136,7 +142,7 @@ def render(segments, params, args, out: Path) -> Path:
         j, k = frames[frame]
         seg = segments[j]
         ref, runs, t = seg["ref"], seg["runs"], k * 0.02
-        title.set_text(f"S-bend at μ = {seg['mu']}   ({seg['speed']:.0f} m/s, arcs at {seg['ay']:.1f} μg; trained on random curves, never on this bend)   t = {t:4.1f} s")
+        title.set_text(f"S-bend at μ = {seg['mu']}   ({seg['speed']:.0f} m/s, arcs at {seg['ay']:.1f} μg; policies trained on random curves, never on this bend)   t = {t:4.1f} s")
         for a in (ax_cam, ax_all, ax_lat, ax_util):
             a.clear()
         # following camera
@@ -212,6 +218,14 @@ def main(argv=None) -> int:
     run = SimpleNamespace(**{**blob["args"], "device": args.device})
     levels = args.mu if args.mu else run.mu_levels
     cfg = env_cfg(run, 2, 2)
+    controllers = dict(blob.get("controllers", {}))
+    if args.nmpc and "nmpc" not in controllers:
+        controllers["nmpc"] = {"friction": args.nmpc_friction}
+    nmpc = None
+    if controllers:
+        from supermimic.baselines.nmpc import NMPC, NMPCCfg
+
+        nmpc = NMPC(cfg, cfg=NMPCCfg(**controllers["nmpc"]))
     segments = []
     for mu in levels:
         lib = ReferenceLibrary.s_curve(cfg, speed=run.scurve_speed, ay_frac=run.scurve_ay, mu=mu).to(args.device)
@@ -222,6 +236,10 @@ def main(argv=None) -> int:
             policy.load_state_dict(sd)
             policy.eval()
             runs[m] = drive(policy, heads, lib, run)
+        if nmpc is not None:
+            nmpc.reset()
+            runs["nmpc"] = drive(None, VehicleHeads(cfg, env.dyn.p.R_w), lib, run, controller=nmpc)
+        for m in runs:
             print(f"mu {mu}: {m} {'terminated' if runs[m]['terminated'] else 'completed'} after {len(runs[m]['x'])} steps, "
                   f"mean |lateral error| {sum(abs(v) for v in runs[m]['lat']) / len(runs[m]['lat']):.2f} m", flush=True)
         ref = {"x": lib.x.cpu().tolist(), "y": lib.y.cpu().tolist(), "util": lib.util.cpu().tolist()}

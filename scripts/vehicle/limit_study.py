@@ -84,8 +84,9 @@ def libraries(args, cfg, n_per_level, seed):
 
 
 @torch.no_grad()
-def evaluate(policy, heads, lib: ReferenceLibrary, args) -> dict:
-    """Deterministic play of every reference from its start at its own friction, nominal context otherwise."""
+def evaluate(policy, heads, lib: ReferenceLibrary, args, controller=None) -> dict:
+    """Deterministic play of every reference from its start at its own friction, nominal context otherwise.
+    ``controller(env) -> actions`` replaces the policy when given (model-based baselines that read the env's state)."""
     n, length = lib.layout.num_sequences, int(lib.lengths[0])
     cfg = env_cfg(args, n, 2, train=False)
     dev = args.device
@@ -107,7 +108,7 @@ def evaluate(policy, heads, lib: ReferenceLibrary, args) -> dict:
         # near-limit steps of the reference itself (rows that ended keep running from a reset, elsewhere):
         # the denominator is the same for every policy
         near = lib.util[start + t] > NEAR_LIMIT
-        a = policy(hist.flat(), obs["goal"])
+        a = policy(hist.flat(), obs["goal"]) if controller is None else controller(env)
         obs, r, _term, _trunc, info = env.step(a)
         e = tracking.errors(env.s, ref)  # rows that just ended are masked by ``alive`` below
         ret += r * alive

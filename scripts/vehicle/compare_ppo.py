@@ -1,4 +1,4 @@
-"""SuperMimic vs PPO on the vehicle: train both on the same library of random curves (friction-matched,
+"""SuperMimic vs PPO vs NMPC on the vehicle: train both on the same library of random curves (friction-matched,
 up to the grip limit, as in ``limit_study.py``), then test on held-out curves and on an S-bend near the grip
 limit that neither saw in training.
 
@@ -9,17 +9,24 @@ limit that neither saw in training.
 * Each method gets the same training wall-clock budget (``--budget-min``; evaluation excluded); PPO runs
   many more environments (``--ppo-envs``, default 4096 vs 256), as model-free methods need the samples.
   Both curves are recorded: return against training time and against simulator steps.
+* NMPC (``supermimic.baselines.nmpc``, needs ``casadi``): no training; single-track model with tyre curves
+  identified from the simulator, IPOPT, 1 s horizon. It reads the true state and (``--nmpc-friction known``)
+  the road friction, which the policies do not get: a strong, privileged baseline. Its solve time per
+  control step is recorded next to the policies' inference time.
 * S-bend: straight, left arc, right arc, straight at ``--scurve-speed`` with the arcs at ``--scurve-ay`` x
   mu g, one per friction level (``ReferenceLibrary.s_curve``).
 
 Writes ``report.json``, ``curves.png`` (learning curves), ``s_curve.png`` (paths and lateral error) and
-``policies.pt`` (the trained policies, for ``render_scurve.py``) to ``--out-dir``. One seed; no pass / fail gate.
+``policies.pt`` (the trained policies and the NMPC settings, for ``render_scurve.py``) to ``--out-dir``. One seed;
+no pass / fail gate.
 """
 
 from __future__ import annotations
 
 import argparse
+import copy
 import json
+from dataclasses import asdict
 import sys
 import time
 from pathlib import Path
@@ -30,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from demo_e2e import ObsHistory
 from limit_study import MODELS, NEAR_LIMIT, env_cfg, evaluate, libraries
 
+from supermimic.baselines.nmpc import NMPC, NMPCCfg
 from supermimic.baselines.ppo import PPOCfg, train_ppo
 from supermimic.imagination.policy_trainer import PolicyTrainer, PolicyTrainerCfg
 from supermimic.policy.nets import Critic, CriticCfg, NetIO, Policy, PolicyCfg
@@ -40,7 +48,8 @@ from supermimic.vehicles.threads import add_threads_arg, limit_threads, usable_c
 from supermimic.world_model.wm_trainer import WMTrainerCfg, WorldModelTrainer
 from supermimic.world_model.world_model import WorldModel, WorldModelCfg
 
-METHODS = ("supermimic", "ppo")
+METHODS = ("supermimic", "ppo", "nmpc")
+COLORS = {"supermimic": "#1f77b4", "ppo": "#d62728", "nmpc": "#2ca02c"}
 
 
 def parse(argv=None):
@@ -80,6 +89,10 @@ def parse(argv=None):
     ap.add_argument("--ppo-minibatches", type=int, default=4)
     ap.add_argument("--ppo-lr", type=float, default=3e-4)
     ap.add_argument("--ppo-entropy", type=float, default=0.0)
+    # NMPC
+    ap.add_argument("--nmpc-friction", default="known", choices=["known", "nominal"], help="known: the true road friction; nominal: assume 1.0")
+    ap.add_argument("--nmpc-horizon", type=int, default=25, help="shooting intervals")
+    ap.add_argument("--nmpc-interval", type=int, default=2, help="control steps per shooting interval")
     ap.add_argument("--out-dir", default="logs/compare")
     ap.add_argument("--no-plots", action="store_true")
     add_threads_arg(ap)
@@ -178,8 +191,9 @@ def train_ppo_method(args, lib, run_eval, log):
 
 
 @torch.no_grad()
-def trajectory(policy, heads, lib: ReferenceLibrary, args) -> dict:
-    """Deterministic play of a one-reference library from its start; per-step path and errors until it ends."""
+def trajectory(policy, heads, lib: ReferenceLibrary, args, controller=None) -> dict:
+    """Deterministic play of a one-reference library from its start; per-step path and errors until it ends.
+    ``controller(env) -> actions`` replaces the policy when given."""
     length = int(lib.lengths[0])
     env = VehicleTrackingEnv(env_cfg(args, 1, 2, train=False), lib, device=args.device, record=False)
     env.forced_xi = torch.tensor([1.0, 1.0, 1.0, 0.0, 0.0])
@@ -191,7 +205,7 @@ def trajectory(policy, heads, lib: ReferenceLibrary, args) -> dict:
     terminated = False
     for _ in range(length - 1):
         ref = lib.ref(env.frame.clone())
-        obs, _r, term, _trunc, info = env.step(policy(hist.flat(), obs["goal"]))
+        obs, _r, term, _trunc, info = env.step(policy(hist.flat(), obs["goal"]) if controller is None else controller(env))
         if info["done"][0]:
             terminated = bool(term[0])
             break
@@ -208,16 +222,55 @@ def trajectory(policy, heads, lib: ReferenceLibrary, args) -> dict:
     return out
 
 
+def nmpc_cfg(args) -> NMPCCfg:
+    return NMPCCfg(horizon=args.nmpc_horizon, interval=args.nmpc_interval, friction=args.nmpc_friction)
+
+
+@torch.no_grad()
+def policy_latency_ms(policy, heads, args, reps: int = 300) -> dict:
+    """One policy evaluation for a single vehicle on the CPU (the deployment case), in milliseconds."""
+    import numpy as np
+
+    p = copy.deepcopy(policy).cpu().eval()
+    hist = ObsHistory(heads, 1, args.history, "cpu")
+    obs, goal = hist.flat(), torch.zeros(1, 5 * len(env_cfg(args, 1, 2).preview))
+    ts = []
+    for i in range(reps + 20):
+        t0 = time.perf_counter()
+        p(obs, goal)
+        if i >= 20:
+            ts.append(1e3 * (time.perf_counter() - t0))
+    return {"mean_ms": float(np.mean(ts)), "p95_ms": float(np.percentile(ts, 95))}
+
+
+def run_nmpc(args, cfg, heads, eval_libs, scurves, log):
+    """Evaluate the NMPC baseline (no training) on the held-out curves and the S-bends."""
+    ctl = NMPC(cfg, cfg=nmpc_cfg(args))
+    log(f"nmpc: tyre fit {ctl.fit_info}; front {ctl.front}, rear {ctl.rear}")
+    final = {f"mu_{mu}": evaluate(None, heads, el, args, controller=ctl) for mu, el in zip(args.mu_levels, eval_libs)}
+    sc = {f"mu_{mu}": evaluate(None, heads, s, args, controller=ctl) for mu, s in zip(args.mu_levels, scurves)}
+    traj = {f"mu_{mu}": trajectory(None, heads, s, args, controller=ctl) for mu, s in zip(args.mu_levels, scurves)}
+    info = {"nmpc": asdict(ctl.cfg), "tyre_fit": ctl.fit_info, "latency": ctl.timing()}
+    log(f"nmpc solve time per control step: {info['latency']}")
+    return final, sc, traj, info
+
+
 def plots(report, scurves, out_dir: Path):
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    colors = {"supermimic": "#1f77b4", "ppo": "#d62728"}
+    colors = COLORS
     fig, ax = plt.subplots(2, 2, figsize=(11, 7))
     for m, res in report["methods"].items():
         c = res["curve"]
+        if not c:  # no training (NMPC): its final score as a horizontal line
+            mean = lambda d: sum(v["normalized_return"] for v in d.values()) / len(d)  # noqa: E731
+            for j, key in enumerate(("heldout_final", "scurve_final")):
+                for a in ax[j]:
+                    a.axhline(mean(res[key]), color=colors[m], ls="--", label=f"{m} (no training)")
+            continue
         for j, (key, title) in enumerate((("heldout_return", "held-out curves"), ("scurve_return", "S-bend"))):
             ax[j, 0].plot([r["time_s"] / 60 for r in c], [r[key] for r in c], "-o", ms=3, color=colors[m], label=m)
             ax[j, 1].plot([r["env_steps"] for r in c], [r[key] for r in c], "-o", ms=3, color=colors[m], label=m)
@@ -230,7 +283,7 @@ def plots(report, scurves, out_dir: Path):
         a.grid(alpha=0.3)
         a.set_ylim(0, 1)
     ax[0, 0].legend()
-    fig.suptitle("SuperMimic vs PPO (vehicle, grip limit, ABS/ESC off)")
+    fig.suptitle(" vs ".join(report["methods"]) + " (vehicle, grip limit, ABS/ESC off)")
     fig.tight_layout()
     fig.savefig(out_dir / "curves.png", dpi=130)
     plt.close(fig)
@@ -262,6 +315,11 @@ def plots(report, scurves, out_dir: Path):
 
 def main(argv=None) -> int:
     args = parse(argv)
+    if "nmpc" in args.methods:  # fail before any training, not after it
+        try:
+            import casadi  # noqa: F401
+        except ImportError:
+            sys.exit("the nmpc method needs casadi (pip install casadi), or leave it out: --methods supermimic ppo")
     threads = limit_threads(args.threads)
     print(f"cpu threads: {threads} (of {usable_cores()} usable cores), device {args.device}", flush=True)
     t0 = time.time()
@@ -276,30 +334,38 @@ def main(argv=None) -> int:
     heads = VehicleHeads(cfg, VehicleTrackingEnv(cfg, lib, device=args.device, record=False).dyn.p.R_w)
     run_eval = make_eval(heads, eval_libs, scurves, args)
     report = {"args": vars(args), "methods": {}, "scurve": {f"mu_{mu}": {} for mu in args.mu_levels}}
-    policies = {}
+    policies, controllers = {}, {}
     for m in args.methods:
-        log(f"=== {m}: {args.budget_min} min training budget")
-        policy, curve, info = (train_supermimic if m == "supermimic" else train_ppo_method)(args, lib, run_eval, log)
-        policy.eval()
-        final = {f"mu_{mu}": evaluate(policy, heads, el, args) for mu, el in zip(args.mu_levels, eval_libs)}
-        sc = {f"mu_{mu}": evaluate(policy, heads, s, args) for mu, s in zip(args.mu_levels, scurves)}
-        traj = {f"mu_{mu}": trajectory(policy, heads, s, args) for mu, s in zip(args.mu_levels, scurves)}
-        report["methods"][m] = {**info, "curve": curve, "heldout_final": final, "scurve_final": sc, "scurve_traj": traj}
-        policies[m] = {k: v.detach().cpu() for k, v in policy.state_dict().items()}
+        if m == "nmpc":
+            log("=== nmpc: no training")
+            final, sc, traj, info = run_nmpc(args, cfg, heads, eval_libs, scurves, log)
+            report["methods"][m] = {**info, "curve": [], "heldout_final": final, "scurve_final": sc, "scurve_traj": traj}
+            controllers[m] = info["nmpc"]
+        else:
+            log(f"=== {m}: {args.budget_min} min training budget")
+            policy, curve, info = (train_supermimic if m == "supermimic" else train_ppo_method)(args, lib, run_eval, log)
+            policy.eval()
+            final = {f"mu_{mu}": evaluate(policy, heads, el, args) for mu, el in zip(args.mu_levels, eval_libs)}
+            sc = {f"mu_{mu}": evaluate(policy, heads, s, args) for mu, s in zip(args.mu_levels, scurves)}
+            traj = {f"mu_{mu}": trajectory(policy, heads, s, args) for mu, s in zip(args.mu_levels, scurves)}
+            info["latency"] = policy_latency_ms(policy, heads, args)
+            report["methods"][m] = {**info, "curve": curve, "heldout_final": final, "scurve_final": sc, "scurve_traj": traj}
+            policies[m] = {k: v.detach().cpu() for k, v in policy.state_dict().items()}
         log(f"{m} final: held-out " + "  ".join(f"{k} {v['normalized_return']:.3f}" for k, v in final.items())
             + " | S-bend " + "  ".join(f"{k} {v['normalized_return']:.3f}{' (completed)' if v['termination_rate'] == 0 else ' (terminated)'}" for k, v in sc.items()))
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     report["wall_clock_s"] = round(time.time() - t0, 1)
     (out / "report.json").write_text(json.dumps(report, indent=1))
-    torch.save({"args": vars(args), "policies": policies}, out / "policies.pt")  # for render_scurve.py
+    torch.save({"args": vars(args), "policies": policies, "controllers": controllers}, out / "policies.pt")  # for render_scurve.py
     if not args.no_plots:
         plots(report, scurves, out)
     log(f"report: {out / 'report.json'}" + ("" if args.no_plots else f", plots: {out / 'curves.png'}, {out / 's_curve.png'}"))
-    print("\nmethod      " + "  ".join(f"held-out {k}" for k in final) + "  |  " + "  ".join(f"S-bend {k}" for k in sc))
+    print("\nmethod      " + "  ".join(f"held-out {k}" for k in final) + "  |  " + "  ".join(f"S-bend {k}" for k in sc) + "  |  ms per step (CPU)")
     for m, res in report["methods"].items():
         print(f"{m:11s} " + "  ".join(f"{v['normalized_return']:13.3f}" for v in res["heldout_final"].values()) + "  |  "
-              + "  ".join(f"{v['normalized_return']:.3f} {'ok ' if v['termination_rate'] == 0 else 'end'}" for v in res["scurve_final"].values()))
+              + "  ".join(f"{v['normalized_return']:.3f} {'ok ' if v['termination_rate'] == 0 else 'end'}" for v in res["scurve_final"].values())
+              + f"  |  {res['latency']['mean_ms']:.3f} (p95 {res['latency']['p95_ms']:.3f})")
     return 0
 
 

@@ -37,7 +37,7 @@ def test_compare_ppo_runs(tmp_path):
     code = compare_ppo.main(["--budget-min", "0.05", "--eval-every-s", "2", "--mu-levels", "0.5", "1.0", "--refs-per-level", "2",
                              "--eval-refs-per-level", "1", "--ref-steps", "120", "--episode-steps", "40", "--num-envs", "16", "--batch", "16",
                              "--warmup", "20", "--policy-warmup", "30", "--horizon", "4", "--ppo-envs", "16", "--ppo-steps", "8",
-                             "--out-dir", str(tmp_path), "--no-plots"])
+                             "--methods", "supermimic", "ppo", "--out-dir", str(tmp_path), "--no-plots"])
     rep = json.loads((tmp_path / "report.json").read_text())
     assert code == 0 and set(rep["methods"]) == {"supermimic", "ppo"}
     for res in rep["methods"].values():
@@ -55,7 +55,7 @@ def test_render_scurve(tmp_path):
     compare_ppo.main(["--budget-min", "0.02", "--eval-every-s", "100", "--eval-at-steps", "--mu-levels", "1.0", "--refs-per-level", "2",
                       "--eval-refs-per-level", "1", "--ref-steps", "120", "--episode-steps", "40", "--num-envs", "16", "--batch", "16",
                       "--warmup", "20", "--policy-warmup", "30", "--horizon", "4", "--ppo-envs", "16", "--ppo-steps", "8",
-                      "--out-dir", str(tmp_path), "--no-plots"])
+                      "--methods", "supermimic", "ppo", "--out-dir", str(tmp_path), "--no-plots"])
     out = tmp_path / "s.gif"
     assert render_scurve.main(["--policies", str(tmp_path / "policies.pt"), "--fps", "1", "--dpi", "40", "--out", str(out)]) == 0
     assert out.exists() and out.stat().st_size > 1000
