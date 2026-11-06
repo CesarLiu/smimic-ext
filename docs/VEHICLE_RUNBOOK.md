@@ -16,7 +16,7 @@
 | demo | 整条 SuperMimic 循环在车辆上学会跟踪 | ✅ 通过：留出参考回报 0.10 → 0.36（加入原始动作约束后；之前为 0.62，见 §3.8） | §3.8，`docs/results/vehicle_demo_e2e.json` |
 | E1 | 饱和区雅可比检查（修订后的关卡） | ✅ 大容量世界模型通过（饱和区 8 步梯度余弦 0.94，误差 0.11）；默认规模未通过 | §3.9，`docs/results/vehicle_jacobian_check*.json` |
 | 第 2 步 | 策略在附着极限附近学跟踪，大小世界模型对比（无关卡，只测量） | ✅ 已测两次（两台机器）：三档摩擦都学会（回报约 0.1 → 0.38–0.76）；大模型在 12 个对比项里 11 项更好、1 项持平，但单次运行的数字波动很大，需要多种子；终止率仍有 33–50% | §3.10，`docs/results/vehicle_limit_study.json` |
-| E6（部分） | S 弯 demo：SuperMimic 对比 PPO（同一训练库，S 弯为未见过的测试） | ✅ CPU 上跑过一次（各 8 分钟，单种子）：相同数据量下 SuperMimic 样本效率高约 3–4 倍；相同时间下 PPO 更好（0.96 对 0.81）；两者都跑完 S 弯。待 H200、多种子 | §3.11，第 7 步，`docs/results/vehicle_compare_ppo_cpu*` |
+| E6（部分） | S 弯 demo：SuperMimic 对比 PPO（同一训练库，S 弯为未见过的测试） | ✅ CPU 上跑过一次（各 8 分钟，单种子）：相同数据量下 SuperMimic 样本效率高约 3–4 倍；相同时间下 PPO 更好（0.96 对 0.81）；两者都跑完 S 弯。待 H200、多种子。NMPC 基线已实现（知道真实状态和摩擦）：各项回报 0.99、横向误差 0.01–0.03 m，每步求解约 9 ms，策略约 0.1 ms | §3.11、§3.12，第 7 步，`docs/results/vehicle_compare_ppo_cpu*`、`vehicle_nmpc*` |
 
 ## 环境
 
@@ -24,6 +24,7 @@
 
 - 下文命令都写成 `env -u PYTHONPATH uv run ...`；不用 uv 时，等价于 `PYTHONPATH=src python ...`。
 - 没有显示环境的机器上，如果导入 mujoco 时 EGL 报错，在命令前加 `MUJOCO_GL=disable`（车辆部分不渲染）。
+- NMPC 基线需要 `casadi`：`uv pip install casadi`（`uv run` 不会把它删掉）。不装也行，`compare_ppo.py` 加 `--methods supermimic ppo` 即可；脚本在训练开始前检查。
 - 只有重新生成 CommonRoad 参考（第 2 步）时才需要 `uv pip install commonroad-vehicle-models`。仓库已带参考数据，平时不用装。
 
 下面的耗时都是在 4 核 CPU 上实测的。
@@ -327,7 +328,7 @@ CUDA_VISIBLE_DEVICES=3 env -u PYTHONPATH uv run python scripts/vehicle/limit_stu
 - “仍在参考上的比例”是策略在这些步上尚未终止的比例，横向 / 航向 / 侧偏误差只在这些步上平均，所以撑得更久的策略会在更难的段上被计入误差（幸存者偏差）；
 - 每档只有 6 条留出参考，终止率的分辨率是 1/6。
 
-### 7. S 弯 demo：SuperMimic 对比 PPO（H200，约 1.2 小时）
+### 7. S 弯 demo：SuperMimic 对比 PPO 和 NMPC（H200，约 1.3 小时）
 
 - [ ] 在随机弯道库上分别训练 SuperMimic 和 PPO，在留出弯道和一条近极限 S 弯上比较
 
@@ -336,6 +337,7 @@ CUDA_VISIBLE_DEVICES=3 env -u PYTHONPATH uv run python scripts/vehicle/limit_stu
 - **S 弯**（`ReferenceLibrary.s_curve`）：15 m/s 匀速，直道 → 左弧 → 右弧 → 直道。弧上侧向加速度 0.7μg，由同一个脚本驾驶员生成，实际附着利用率最高 0.97，390 步里约 155 步超过 0.8。每档摩擦一条。
 - **相同的部分**：环境、观测、奖励、终止、ξ 随机化、重置采样器，以及网络结构。PPO 的 actor 就是 SuperMimic 的 `Policy`，外加一个可学的动作标准差；critic 就是 SuperMimic 的 `Critic`，输入同样的特权信息。
 - **不同的部分**：SuperMimic 用大世界模型、256 个环境（与第 6 步相同）；PPO 用 4096 个环境，因为无模型方法需要更多样本（`src/supermimic/baselines/ppo.py`：裁剪目标、GAE、按 KL 自适应学习率，与 rsl_rl 的做法相同）。
+- **NMPC**（`src/supermimic/baselines/nmpc.py`，不训练）：单轨模型，每个轴一条魔术公式侧向力曲线，参数从完整仿真器的随机转向数据拟合（相对 RMS 误差 3–5%）；多重打靶，1 s 视野（25 段 × 2 个控制步），代价就是奖励里的五项误差（权重 w/σ²）加输入变化惩罚，CasADi + IPOPT 求解，上一步的解平移后做热启动。它读真实状态、知道道路摩擦（`--nmpc-friction known`，默认；`nominal` 时假定 μ=1），这些是策略拿不到的。脚本同时记录 NMPC 每步求解时间和两个策略每步推理时间。
 - **预算**：两者各给相同的训练墙钟时间（`--budget-min`，不含评估时间）。同时记录两条曲线：回报对训练时间，回报对仿真步数。
 
 ```bash
@@ -361,19 +363,31 @@ env -u PYTHONPATH uv run python scripts/vehicle/render_scurve.py --policies logs
 # 只看一档：--mu 1.0；没有 ffmpeg 时自动改写 GIF（也可以直接给 --out ...gif）
 ```
 
-画面左边是跟随两辆车的俯视镜头（车身、前轮转角、行驶轨迹、参考线，图例里实时显示车速、横向误差和附着利用率，终止时打 ×）；右边是整条弯道、横向误差曲线，以及附着利用率曲线（虚线是参考的，1.0 是附着极限）。
+画面左边是跟随各辆车的俯视镜头（车身、前轮转角、行驶轨迹、参考线，图例里实时显示车速、横向误差和附着利用率，终止时打 ×）；右边是整条弯道、横向误差曲线，以及附着利用率曲线（虚线是参考的，1.0 是附着极限）。
 
-示例视频：[`docs/results/vehicle_compare_ppo_iters_s_curve.mp4`](results/vehicle_compare_ppo_iters_s_curve.mp4)。它来自 CPU 上一次按迭代数给预算的运行（`--sm-max-iters 2700 --ppo-max-updates 408 --ppo-envs 1024`）：SuperMimic 训练 2700 次迭代，用了 69 万仿真步；PPO 训练 408 次更新，用了 1337 万仿真步。两者都跑完了三档摩擦的 S 弯，没有一档中途终止，平均横向误差如下：
+没有 NMPC 的旧运行，可以用 `--nmpc` 把它加进视频（不用重新训练）。
 
-| μ | SuperMimic | PPO |
-|---|---|---|
-| 0.5 | 0.24 m | 0.09 m |
-| 0.8 | 0.31 m | 0.13 m |
-| 1.0 | 0.27 m | 0.16 m |
+示例视频：[`docs/results/vehicle_compare_s_curve.mp4`](results/vehicle_compare_s_curve.mp4)，蓝色 SuperMimic、红色 PPO、绿色 NMPC。两个策略来自 CPU 上一次按迭代数给预算的运行（`--sm-max-iters 2700 --ppo-max-updates 408 --ppo-envs 1024`）：SuperMimic 训练 2700 次迭代，用了 69 万仿真步；PPO 训练 408 次更新，用了 1337 万仿真步。三者都跑完了三档摩擦的 S 弯，没有一档中途终止，平均横向误差如下：
 
-S 弯回报：SuperMimic 依次为 0.86 / 0.82 / 0.80，PPO 依次为 0.98 / 0.96 / 0.92。PPO 的跟踪更紧，但用的仿真数据约是 SuperMimic 的 19 倍。
+| μ | SuperMimic | PPO | NMPC |
+|---|---|---|---|
+| 0.5 | 0.24 m | 0.09 m | 0.03 m |
+| 0.8 | 0.31 m | 0.13 m | 0.02 m |
+| 1.0 | 0.27 m | 0.16 m | 0.02 m |
+
+S 弯回报：SuperMimic 依次为 0.86 / 0.82 / 0.80，PPO 依次为 0.98 / 0.96 / 0.92，NMPC 都是 0.99。PPO 的跟踪比 SuperMimic 紧，但用的仿真数据约是 SuperMimic 的 19 倍。NMPC 最紧，但它有特权信息，每步也要贵约 90 倍的计算（见下文）。
+
+**NMPC 结果**（CPU，与 §3.11 相同的留出弯道和 S 弯，`docs/results/vehicle_nmpc_cpu.json`，假定 μ=1 的版本是 `vehicle_nmpc_nominal_mu_cpu.json`）：
+
+| | 留出弯道回报（μ 0.5 / 0.8 / 1.0） | 留出弯道横向误差 [m] | S 弯回报 | S 弯横向误差 [m] | 每步计算（CPU） |
+|---|---|---|---|---|---|
+| NMPC，知道摩擦 | 0.988 / 0.988 / 0.989，无终止 | 0.018 / 0.019 / 0.010 | 0.988 / 0.988 / 0.988 | 0.026 / 0.022 / 0.021 | 求解 9.1 ms（p95 13.8 ms），0 次失败 |
+| NMPC，假定 μ=1 | 0.965（6 条里终止 1 条）/ 0.980 / 0.989 | 0.032 / 0.036 / 0.010 | 0.983 / 0.985 / 0.988 | 0.048 / 0.041 / 0.021 | 9.4 ms |
+| 策略（SuperMimic / PPO） | 见 §3.11 | | | | 推理 0.10 / 0.13 ms |
 
 **怎么读**：
+- NMPC 在这个设定下是上限，不是公平对手：它读无噪声的真实状态、知道摩擦，预测模型的动力学和执行器参数都是名义值，评估时也没有指令延迟。策略只拿到带噪声的车载测量，要从历史里推断摩擦。只把摩擦这一项拿走（假定 μ=1），NMPC 在 μ=0.5 上就有 1 条留出弯道终止；
+- 学习策略的优势在部署代价（约 0.1 ms 对 9 ms，且不用在线求解器）和不需要特权信息。要比较“同样的信息”，下一步是给 NMPC 加状态估计、摩擦未知、指令延迟随机；
 - 时间曲线回答“同样的 GPU 时间，谁学得更好”，步数曲线回答“同样的数据量，谁学得更好”。SuperMimic 的卖点在后者：它用世界模型生成梯度，样本效率应高得多；PPO 靠大量并行环境追时间；
 - S 弯是泛化测试：训练库里没有这种几何，看两者能否跑完、横向误差多大；
 - 这是单种子。§3.10 的经验是，单次运行的数字波动很大，结论要靠多种子（换 `--seed`，再比较）。

@@ -98,7 +98,7 @@ def evaluate(policy, heads, lib: ReferenceLibrary, args, controller=None) -> dic
     hist.reset(torch.arange(n, device=dev), obs["policy"])
     z = lambda: torch.zeros(n, device=dev)  # noqa: E731
     alive = torch.ones(n, dtype=torch.bool, device=dev)
-    ret, steps, lat = z(), z(), z()
+    ret, steps, lat, lat_n = z(), z(), z(), z()
     nl_total, nl_alive = z(), z()
     nl_err = {"lat": z(), "yaw": z(), "beta": z()}
     start = lib.layout.seq_start
@@ -112,7 +112,10 @@ def evaluate(policy, heads, lib: ReferenceLibrary, args, controller=None) -> dic
         obs, r, _term, _trunc, info = env.step(a)
         e = tracking.errors(env.s, ref)  # rows that just ended are masked by ``alive`` below
         ret += r * alive
-        lat += e["lat"].abs() * alive
+        # the step that ends an episode already shows the reset state, so its pose error is not counted
+        on_ref = alive & ~info["done"]
+        lat += e["lat"].abs() * on_ref
+        lat_n += on_ref.float()
         steps += alive.float()
         nl_total += near.float()
         live_near = near & alive & ~info["done"]
@@ -124,7 +127,7 @@ def evaluate(policy, heads, lib: ReferenceLibrary, args, controller=None) -> dic
     out = {
         "normalized_return": float((ret / (heads.max_step_reward * (length - 1))).mean()),
         "termination_rate": float((steps < length - 1).float().mean()),
-        "mean_abs_lateral_error_m": float((lat / steps.clamp_min(1)).mean()),
+        "mean_abs_lateral_error_m": float((lat / lat_n.clamp_min(1)).mean()),
         "mean_steps": float(steps.mean()),
         "near_limit_steps": int(nl_total.sum()),
         "near_limit_survived_share": float(nl_alive.sum() / nl_total.sum().clamp_min(1)),
