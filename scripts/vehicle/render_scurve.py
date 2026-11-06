@@ -2,8 +2,8 @@
 
     PYTHONPATH=src python scripts/vehicle/render_scurve.py --policies logs/compare/seed0/policies.pt --out logs/compare/seed0/s_curve.mp4
 
-The NMPC baseline drives too when the run included it, or with ``--nmpc`` (needs ``casadi``) for runs made
-without it.
+The NMPC baselines drive too when the run included them, or with ``--nmpc`` (true state and friction) and
+``--nmpc-onboard`` (the policies' information; needs ``casadi``) for runs made without them.
 
 Each policy drives the S-bend deterministically (nominal context, no noise) at every friction level of the run,
 one after the other in the video. Left: a camera following the cars (body outline, steered front wheels,
@@ -26,7 +26,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from compare_ppo import COLORS, networks
 from demo_e2e import ObsHistory
-from limit_study import env_cfg
+from limit_study import env_cfg, eval_xi, measurement
 
 from supermimic.vehicles import tracking
 from supermimic.vehicles.dynamics import AX, AY, DELTA, VX, VY, YAW, X, Y
@@ -34,7 +34,7 @@ from supermimic.vehicles.env import ReferenceLibrary, VehicleTrackingEnv
 from supermimic.vehicles.learner import VehicleHeads
 from supermimic.vehicles.threads import add_threads_arg, limit_threads
 
-NAMES = {"supermimic": "SuperMimic", "ppo": "PPO", "nmpc": "NMPC"}
+NAMES = {"supermimic": "SuperMimic", "ppo": "PPO", "nmpc": "NMPC (true state)", "nmpc_onboard": "NMPC (on-board)"}
 
 
 def parse(argv=None):
@@ -45,7 +45,9 @@ def parse(argv=None):
     ap.add_argument("--fps", type=int, default=25, help="video frame rate; the simulation runs at 50 Hz, shown in real time")
     ap.add_argument("--dpi", type=int, default=100)
     ap.add_argument("--view", type=float, default=36.0, help="width of the following camera's view [m]")
-    ap.add_argument("--nmpc", action="store_true", help="add the NMPC baseline even if the run did not include it")
+    ap.add_argument("--nmpc", action="store_true", help="add NMPC with the true state and friction even if the run did not include it")
+    ap.add_argument("--nmpc-onboard", action="store_true", help="add NMPC with the policies' information (estimator, delay compensation)")
+    ap.add_argument("--nmpc-assumed-delay", type=int, default=1, help="with --nmpc-onboard: the delay it compensates [control steps]")
     ap.add_argument("--nmpc-friction", default="known", choices=["known", "nominal"], help="with --nmpc: whether NMPC knows the road friction")
     ap.add_argument("--device", default="cpu")
     add_threads_arg(ap)
@@ -55,14 +57,15 @@ def parse(argv=None):
 @torch.no_grad()
 def drive(policy, heads, lib: ReferenceLibrary, args, controller=None) -> dict:
     """Deterministic play from the reference's start; per-step pose, steering, errors and friction use.
-    ``controller(env) -> actions`` replaces the policy when given."""
+    ``controller(env, measurements) -> actions`` replaces the policy when given."""
     length = int(lib.lengths[0])
     env = VehicleTrackingEnv(env_cfg(args, 1, 2, train=False), lib, device=args.device, record=False)
-    env.forced_xi = torch.tensor([1.0, 1.0, 1.0, 0.0, 0.0])
+    env.forced_xi = eval_xi(args)
     env.forced_frame[:] = lib.layout.seq_start[:1]
     obs = env.reset()
+    meas = measurement(obs["policy"], heads, args)
     hist = ObsHistory(heads, 1, args.history, args.device)
-    hist.reset(torch.arange(1, device=args.device), obs["policy"])
+    hist.reset(torch.arange(1, device=args.device), meas)
     mu = float(env.ctx.mu[0])
     keys = ("x", "y", "yaw", "delta", "speed", "lat", "util")
     out = {k: [] for k in keys}
@@ -78,12 +81,13 @@ def drive(policy, heads, lib: ReferenceLibrary, args, controller=None) -> dict:
     out["terminated"] = False
     for _ in range(length - 1):
         ref = lib.ref(env.frame.clone())
-        obs, _r, term, _trunc, info = env.step(policy(hist.flat(), obs["goal"]) if controller is None else controller(env))
+        obs, _r, term, _trunc, info = env.step(policy(hist.flat(), obs["goal"]) if controller is None else controller(env, meas))
         if info["done"][0]:
             out["terminated"] = bool(term[0])
             break
         record(ref)
-        hist.push(obs["policy"])
+        meas = measurement(obs["policy"], heads, args)
+        hist.push(meas)
     return out
 
 
@@ -221,11 +225,13 @@ def main(argv=None) -> int:
     controllers = dict(blob.get("controllers", {}))
     if args.nmpc and "nmpc" not in controllers:
         controllers["nmpc"] = {"friction": args.nmpc_friction}
-    nmpc = None
+    if args.nmpc_onboard and "nmpc_onboard" not in controllers:
+        controllers["nmpc_onboard"] = {"information": "onboard", "friction": args.nmpc_friction, "assumed_delay": args.nmpc_assumed_delay}
+    nmpcs = {}
     if controllers:
         from supermimic.baselines.nmpc import NMPC, NMPCCfg
 
-        nmpc = NMPC(cfg, cfg=NMPCCfg(**controllers["nmpc"]))
+        nmpcs = {name: NMPC(cfg, cfg=NMPCCfg(**c)) for name, c in controllers.items()}
     segments = []
     for mu in levels:
         lib = ReferenceLibrary.s_curve(cfg, speed=run.scurve_speed, ay_frac=run.scurve_ay, mu=mu).to(args.device)
@@ -236,9 +242,9 @@ def main(argv=None) -> int:
             policy.load_state_dict(sd)
             policy.eval()
             runs[m] = drive(policy, heads, lib, run)
-        if nmpc is not None:
-            nmpc.reset()
-            runs["nmpc"] = drive(None, VehicleHeads(cfg, env.dyn.p.R_w), lib, run, controller=nmpc)
+        for name, ctl in nmpcs.items():
+            ctl.reset()
+            runs[name] = drive(None, VehicleHeads(cfg, env.dyn.p.R_w), lib, run, controller=ctl)
         for m in runs:
             print(f"mu {mu}: {m} {'terminated' if runs[m]['terminated'] else 'completed'} after {len(runs[m]['x'])} steps, "
                   f"mean |lateral error| {sum(abs(v) for v in runs[m]['lat']) / len(runs[m]['lat']):.2f} m", flush=True)

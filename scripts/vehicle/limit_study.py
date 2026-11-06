@@ -83,19 +83,37 @@ def libraries(args, cfg, n_per_level, seed):
             for k, mu in enumerate(args.mu_levels)]
 
 
+def measurement(obs_policy: torch.Tensor, heads, args) -> torch.Tensor:
+    """What the controller measures: the on-board observation, with the training noise if ``args.eval_noise``."""
+    if not getattr(args, "eval_noise", False):
+        return obs_policy
+    half = heads.obs_noise_half().to(obs_policy.device)
+    return obs_policy + (torch.rand_like(obs_policy) * 2 - 1) * half
+
+
+def eval_xi(args) -> torch.Tensor:
+    """Evaluation context: nominal, friction set from the reference, command delay ``args.eval_delay`` steps.
+    With ``args.eval_mismatch`` the tyre stiffness, mass and CoG are at the edge of the training ranges (x 0.85,
+    x 1.15, 0.1 m forward), a plant a model-based controller with nominal parameters does not match."""
+    stiff, mass, cog = (0.85, 1.15, 0.1) if getattr(args, "eval_mismatch", False) else (1.0, 1.0, 0.0)
+    return torch.tensor([1.0, stiff, mass, cog, float(getattr(args, "eval_delay", 0))])
+
+
 @torch.no_grad()
 def evaluate(policy, heads, lib: ReferenceLibrary, args, controller=None) -> dict:
     """Deterministic play of every reference from its start at its own friction, nominal context otherwise.
-    ``controller(env) -> actions`` replaces the policy when given (model-based baselines that read the env's state)."""
+    ``controller(env, measurements) -> actions`` replaces the policy when given (model-based baselines). With
+    ``args.eval_noise`` the measurements carry the training noise, with ``args.eval_delay`` the command delay is fixed."""
     n, length = lib.layout.num_sequences, int(lib.lengths[0])
     cfg = env_cfg(args, n, 2, train=False)
     dev = args.device
     env = VehicleTrackingEnv(cfg, lib, device=dev, record=False)
-    env.forced_xi = torch.tensor([1.0, 1.0, 1.0, 0.0, 0.0])  # friction then set from the reference
+    env.forced_xi = eval_xi(args)  # friction then set from the reference
     env.forced_frame[:] = lib.layout.seq_start
     obs = env.reset()
+    meas = measurement(obs["policy"], heads, args)
     hist = ObsHistory(heads, n, args.history, dev)
-    hist.reset(torch.arange(n, device=dev), obs["policy"])
+    hist.reset(torch.arange(n, device=dev), meas)
     z = lambda: torch.zeros(n, device=dev)  # noqa: E731
     alive = torch.ones(n, dtype=torch.bool, device=dev)
     ret, steps, lat, lat_n = z(), z(), z(), z()
@@ -108,7 +126,7 @@ def evaluate(policy, heads, lib: ReferenceLibrary, args, controller=None) -> dic
         # near-limit steps of the reference itself (rows that ended keep running from a reset, elsewhere):
         # the denominator is the same for every policy
         near = lib.util[start + t] > NEAR_LIMIT
-        a = policy(hist.flat(), obs["goal"]) if controller is None else controller(env)
+        a = policy(hist.flat(), obs["goal"]) if controller is None else controller(env, meas)
         obs, r, _term, _trunc, info = env.step(a)
         e = tracking.errors(env.s, ref)  # rows that just ended are masked by ``alive`` below
         ret += r * alive
@@ -123,7 +141,8 @@ def evaluate(policy, heads, lib: ReferenceLibrary, args, controller=None) -> dic
         for k in nl_err:
             nl_err[k] += e[k].abs() * live_near
         alive &= ~info["done"]
-        hist.push(obs["policy"])
+        meas = measurement(obs["policy"], heads, args)
+        hist.push(meas)
     out = {
         "normalized_return": float((ret / (heads.max_step_reward * (length - 1))).mean()),
         "termination_rate": float((steps < length - 1).float().mean()),

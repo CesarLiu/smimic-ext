@@ -1,0 +1,540 @@
+{
+ "clean": {
+  "args": {
+   "eval_noise": true,
+   "eval_delay": 0,
+   "nmpc_assumed_delay": 1,
+   "scurve_speed": 15.0,
+   "scurve_ay": 0.7
+  },
+  "methods": {
+   "supermimic": {
+    "heldout": {
+     "mu_0.5": {
+      "normalized_return": 0.8300153613090515,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.17669795453548431
+     },
+     "mu_0.8": {
+      "normalized_return": 0.7595045566558838,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.34179583191871643
+     },
+     "mu_1.0": {
+      "normalized_return": 0.7972345352172852,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.3335334062576294
+     }
+    },
+    "scurve": {
+     "mu_0.5": {
+      "normalized_return": 0.8630596399307251,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.24331530928611755
+     },
+     "mu_0.8": {
+      "normalized_return": 0.8233778476715088,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.3138630986213684
+     },
+     "mu_1.0": {
+      "normalized_return": 0.8022419214248657,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.26833099126815796
+     }
+    },
+    "latency": {
+     "mean_ms": 0.09541777665769284,
+     "p95_ms": 0.1107266500298465
+    }
+   },
+   "ppo": {
+    "heldout": {
+     "mu_0.5": {
+      "normalized_return": 0.98199462890625,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.07187753170728683
+     },
+     "mu_0.8": {
+      "normalized_return": 0.9495521187782288,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.12856316566467285
+     },
+     "mu_1.0": {
+      "normalized_return": 0.9533275961875916,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.11193766444921494
+     }
+    },
+    "scurve": {
+     "mu_0.5": {
+      "normalized_return": 0.9821168184280396,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.09081966429948807
+     },
+     "mu_0.8": {
+      "normalized_return": 0.954767644405365,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.13256274163722992
+     },
+     "mu_1.0": {
+      "normalized_return": 0.9230441451072693,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.1565418541431427
+     }
+    },
+    "latency": {
+     "mean_ms": 0.06201083666913595,
+     "p95_ms": 0.08714984987818752
+    }
+   },
+   "nmpc": {
+    "heldout": {
+     "mu_0.5": {
+      "normalized_return": 0.9877421259880066,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.017565816640853882
+     },
+     "mu_0.8": {
+      "normalized_return": 0.9879307746887207,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.018818054348230362
+     },
+     "mu_1.0": {
+      "normalized_return": 0.9894435405731201,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.010364590212702751
+     }
+    },
+    "scurve": {
+     "mu_0.5": {
+      "normalized_return": 0.9875438213348389,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.026203999295830727
+     },
+     "mu_0.8": {
+      "normalized_return": 0.9880646467208862,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.021629342809319496
+     },
+     "mu_1.0": {
+      "normalized_return": 0.987998902797699,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.021005799993872643
+     }
+    },
+    "latency": {
+     "solves": 11316,
+     "failures": 0,
+     "mean_ms": 8.120124292946148,
+     "p50_ms": 7.896584999912193,
+     "p95_ms": 11.616290000006302,
+     "max_ms": 29.857418999881702
+    }
+   },
+   "nmpc_onboard": {
+    "heldout": {
+     "mu_0.5": {
+      "normalized_return": 0.9913091659545898,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.009791429154574871
+     },
+     "mu_0.8": {
+      "normalized_return": 0.9889088273048401,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.00921954121440649
+     },
+     "mu_1.0": {
+      "normalized_return": 0.9897000193595886,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.008192584849894047
+     }
+    },
+    "scurve": {
+     "mu_0.5": {
+      "normalized_return": 0.9876149296760559,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.020569106563925743
+     },
+     "mu_0.8": {
+      "normalized_return": 0.9884930849075317,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.011548420414328575
+     },
+     "mu_1.0": {
+      "normalized_return": 0.9881981611251831,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.015247649513185024
+     }
+    },
+    "latency": {
+     "solves": 11316,
+     "failures": 0,
+     "mean_ms": 8.550409590580463,
+     "p50_ms": 7.982466500038754,
+     "p95_ms": 13.411933000099907,
+     "max_ms": 41.12934799991308
+    }
+   }
+  }
+ },
+ "noise_delay2": {
+  "args": {
+   "eval_noise": true,
+   "eval_delay": 2,
+   "nmpc_assumed_delay": 1,
+   "scurve_speed": 15.0,
+   "scurve_ay": 0.7
+  },
+  "methods": {
+   "supermimic": {
+    "heldout": {
+     "mu_0.5": {
+      "normalized_return": 0.8317740559577942,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.17309485375881195
+     },
+     "mu_0.8": {
+      "normalized_return": 0.7627430558204651,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.3330901563167572
+     },
+     "mu_1.0": {
+      "normalized_return": 0.7966564297676086,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.3288457989692688
+     }
+    },
+    "scurve": {
+     "mu_0.5": {
+      "normalized_return": 0.8625354766845703,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.24505139887332916
+     },
+     "mu_0.8": {
+      "normalized_return": 0.8225245475769043,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.31321805715560913
+     },
+     "mu_1.0": {
+      "normalized_return": 0.8053829073905945,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.24677787721157074
+     }
+    },
+    "latency": {
+     "mean_ms": 0.05018495999896307,
+     "p95_ms": 0.07217719999061956
+    }
+   },
+   "ppo": {
+    "heldout": {
+     "mu_0.5": {
+      "normalized_return": 0.9844098091125488,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.061545711010694504
+     },
+     "mu_0.8": {
+      "normalized_return": 0.953525722026825,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.11378049850463867
+     },
+     "mu_1.0": {
+      "normalized_return": 0.957564115524292,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.09671764820814133
+     }
+    },
+    "scurve": {
+     "mu_0.5": {
+      "normalized_return": 0.9856930375099182,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.08032979816198349
+     },
+     "mu_0.8": {
+      "normalized_return": 0.9631513357162476,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.10623455047607422
+     },
+     "mu_1.0": {
+      "normalized_return": 0.9330621361732483,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.12908877432346344
+     }
+    },
+    "latency": {
+     "mean_ms": 0.06436420667948066,
+     "p95_ms": 0.09130525002092327
+    }
+   },
+   "nmpc": {
+    "heldout": {
+     "mu_0.5": {
+      "normalized_return": 0.9826974868774414,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.02266501635313034
+     },
+     "mu_0.8": {
+      "normalized_return": 0.7271971106529236,
+      "termination_rate": 0.3333333432674408,
+      "mean_abs_lateral_error_m": 0.20688654482364655
+     },
+     "mu_1.0": {
+      "normalized_return": 0.9595284461975098,
+      "termination_rate": 0.1666666716337204,
+      "mean_abs_lateral_error_m": 0.03119128942489624
+     }
+    },
+    "scurve": {
+     "mu_0.5": {
+      "normalized_return": 0.9879233837127686,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.02590521052479744
+     },
+     "mu_0.8": {
+      "normalized_return": 0.9622411131858826,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.08144057542085648
+     },
+     "mu_1.0": {
+      "normalized_return": 0.5326899886131287,
+      "termination_rate": 1.0,
+      "mean_abs_lateral_error_m": 0.18732014298439026
+     }
+    },
+    "latency": {
+     "solves": 11165,
+     "failures": 0,
+     "mean_ms": 9.628890743843249,
+     "p50_ms": 8.091358000001492,
+     "p95_ms": 17.54469800016522,
+     "max_ms": 60.56912799976999
+    }
+   },
+   "nmpc_onboard": {
+    "heldout": {
+     "mu_0.5": {
+      "normalized_return": 0.9917290806770325,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.009146790951490402
+     },
+     "mu_0.8": {
+      "normalized_return": 0.9882960915565491,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.013258218765258789
+     },
+     "mu_1.0": {
+      "normalized_return": 0.9903228282928467,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.007472432684153318
+     }
+    },
+    "scurve": {
+     "mu_0.5": {
+      "normalized_return": 0.987255334854126,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.02135414257645607
+     },
+     "mu_0.8": {
+      "normalized_return": 0.9884470105171204,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.011556609533727169
+     },
+     "mu_1.0": {
+      "normalized_return": 0.9889582991600037,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.0070724147371947765
+     }
+    },
+    "latency": {
+     "solves": 11316,
+     "failures": 0,
+     "mean_ms": 8.816708455550073,
+     "p50_ms": 7.9867055001159315,
+     "p95_ms": 14.05793599997196,
+     "max_ms": 60.915210000075604
+    }
+   }
+  }
+ },
+ "noise_delay2_mismatch": {
+  "args": {
+   "eval_noise": true,
+   "eval_delay": 2,
+   "eval_mismatch": true,
+   "nmpc_assumed_delay": 1,
+   "scurve_speed": 15.0,
+   "scurve_ay": 0.7
+  },
+  "methods": {
+   "supermimic": {
+    "heldout": {
+     "mu_0.5": {
+      "normalized_return": 0.8308945298194885,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.1788346916437149
+     },
+     "mu_0.8": {
+      "normalized_return": 0.7613064646720886,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.3470861613750458
+     },
+     "mu_1.0": {
+      "normalized_return": 0.7906883358955383,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.34428998827934265
+     }
+    },
+    "scurve": {
+     "mu_0.5": {
+      "normalized_return": 0.8596007823944092,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.2570417821407318
+     },
+     "mu_0.8": {
+      "normalized_return": 0.8204425573348999,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.3276018500328064
+     },
+     "mu_1.0": {
+      "normalized_return": 0.830511212348938,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.2418239265680313
+     }
+    },
+    "latency": {
+     "mean_ms": 0.10348512335895066,
+     "p95_ms": 0.14437210015785262
+    }
+   },
+   "ppo": {
+    "heldout": {
+     "mu_0.5": {
+      "normalized_return": 0.9834522604942322,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.06279189884662628
+     },
+     "mu_0.8": {
+      "normalized_return": 0.9583197236061096,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.10467946529388428
+     },
+     "mu_1.0": {
+      "normalized_return": 0.9566216468811035,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.10272744297981262
+     }
+    },
+    "scurve": {
+     "mu_0.5": {
+      "normalized_return": 0.9847721457481384,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.07863809913396835
+     },
+     "mu_0.8": {
+      "normalized_return": 0.9647679924964905,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.10420427471399307
+     },
+     "mu_1.0": {
+      "normalized_return": 0.927553117275238,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.11482216417789459
+     }
+    },
+    "latency": {
+     "mean_ms": 0.13021942666910036,
+     "p95_ms": 0.13806115018724102
+    }
+   },
+   "nmpc": {
+    "heldout": {
+     "mu_0.5": {
+      "normalized_return": 0.9805684089660645,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.03030536137521267
+     },
+     "mu_0.8": {
+      "normalized_return": 0.6398741602897644,
+      "termination_rate": 0.5,
+      "mean_abs_lateral_error_m": 0.20452962815761566
+     },
+     "mu_1.0": {
+      "normalized_return": 0.9205694794654846,
+      "termination_rate": 0.1666666716337204,
+      "mean_abs_lateral_error_m": 0.0530308373272419
+     }
+    },
+    "scurve": {
+     "mu_0.5": {
+      "normalized_return": 0.9860277771949768,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.03685881197452545
+     },
+     "mu_0.8": {
+      "normalized_return": 0.7289624214172363,
+      "termination_rate": 1.0,
+      "mean_abs_lateral_error_m": 0.16304516792297363
+     },
+     "mu_1.0": {
+      "normalized_return": 0.5531742572784424,
+      "termination_rate": 1.0,
+      "mean_abs_lateral_error_m": 0.2506870925426483
+     }
+    },
+    "latency": {
+     "solves": 11113,
+     "failures": 0,
+     "mean_ms": 9.712958713667028,
+     "p50_ms": 8.066648000294663,
+     "p95_ms": 17.83880040002259,
+     "max_ms": 182.49282999977368
+    }
+   },
+   "nmpc_onboard": {
+    "heldout": {
+     "mu_0.5": {
+      "normalized_return": 0.9912636876106262,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.013676968403160572
+     },
+     "mu_0.8": {
+      "normalized_return": 0.9832754135131836,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.023699069395661354
+     },
+     "mu_1.0": {
+      "normalized_return": 0.9887067675590515,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.015078037977218628
+     }
+    },
+    "scurve": {
+     "mu_0.5": {
+      "normalized_return": 0.9851314425468445,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.033979810774326324
+     },
+     "mu_0.8": {
+      "normalized_return": 0.9878106117248535,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.0162200927734375
+     },
+     "mu_1.0": {
+      "normalized_return": 0.9832963347434998,
+      "termination_rate": 0.0,
+      "mean_abs_lateral_error_m": 0.01209462434053421
+     }
+    },
+    "latency": {
+     "solves": 11316,
+     "failures": 0,
+     "mean_ms": 8.920922007865887,
+     "p50_ms": 8.012106000251151,
+     "p95_ms": 14.206284999772834,
+     "max_ms": 30.24632599999677
+    }
+   }
+  }
+ }
+}

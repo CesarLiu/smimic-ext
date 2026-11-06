@@ -10,9 +10,16 @@ limit that neither saw in training.
   many more environments (``--ppo-envs``, default 4096 vs 256), as model-free methods need the samples.
   Both curves are recorded: return against training time and against simulator steps.
 * NMPC (``supermimic.baselines.nmpc``, needs ``casadi``): no training; single-track model with tyre curves
-  identified from the simulator, IPOPT, 1 s horizon. It reads the true state and (``--nmpc-friction known``)
-  the road friction, which the policies do not get: a strong, privileged baseline. Its solve time per
-  control step is recorded next to the policies' inference time.
+  identified from the simulator, IPOPT, 1 s horizon. Two variants: ``nmpc`` reads the true state and
+  (``--nmpc-friction known``) the road friction, which the policies do not get (an upper bound);
+  ``nmpc_onboard`` gets what the policies get (the 12 on-board measurements, an estimator for sideslip and
+  friction, delay compensation) and is the fair opponent. Its solve time per control step is recorded next to
+  the policies' inference time.
+* ``--eval-mismatch`` puts the plant at the edge of the training ranges for stiffness, mass and CoG (NMPC keeps
+  its nominal model).
+* ``--eval-noise`` / ``--eval-delay N`` make every evaluation (policies and NMPC alike) use measurement noise as in
+  training and a fixed command delay of N control steps; the default is the noise-free, delay-free evaluation
+  of earlier runs.
 * S-bend: straight, left arc, right arc, straight at ``--scurve-speed`` with the arcs at ``--scurve-ay`` x
   mu g, one per friction level (``ReferenceLibrary.s_curve``).
 
@@ -35,7 +42,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from demo_e2e import ObsHistory
-from limit_study import MODELS, NEAR_LIMIT, env_cfg, evaluate, libraries
+from limit_study import MODELS, NEAR_LIMIT, env_cfg, eval_xi, evaluate, libraries, measurement
 
 from supermimic.baselines.nmpc import NMPC, NMPCCfg
 from supermimic.baselines.ppo import PPOCfg, train_ppo
@@ -48,8 +55,8 @@ from supermimic.vehicles.threads import add_threads_arg, limit_threads, usable_c
 from supermimic.world_model.wm_trainer import WMTrainerCfg, WorldModelTrainer
 from supermimic.world_model.world_model import WorldModel, WorldModelCfg
 
-METHODS = ("supermimic", "ppo", "nmpc")
-COLORS = {"supermimic": "#1f77b4", "ppo": "#d62728", "nmpc": "#2ca02c"}
+METHODS = ("supermimic", "ppo", "nmpc", "nmpc_onboard")
+COLORS = {"supermimic": "#1f77b4", "ppo": "#d62728", "nmpc": "#2ca02c", "nmpc_onboard": "#9467bd"}
 
 
 def parse(argv=None):
@@ -93,6 +100,14 @@ def parse(argv=None):
     ap.add_argument("--nmpc-friction", default="known", choices=["known", "nominal"], help="known: the true road friction; nominal: assume 1.0")
     ap.add_argument("--nmpc-horizon", type=int, default=25, help="shooting intervals")
     ap.add_argument("--nmpc-interval", type=int, default=2, help="control steps per shooting interval")
+    ap.add_argument("--nmpc-assumed-delay", type=int, default=1, help="nmpc_onboard: command delay [control steps] it compensates (not told the true one)")
+    # evaluation conditions, for every method
+    ap.add_argument("--eval-noise", action="store_true", help="evaluate with the measurement noise of training")
+    ap.add_argument("--eval-delay", type=int, default=0, help="evaluate with this fixed command delay [control steps]")
+    ap.add_argument("--eval-mismatch", action="store_true", help="evaluate with tyre stiffness x0.85, mass x1.15, CoG 0.1 m forward "
+                    "(edge of the training ranges; NMPC's model keeps the nominal values)")
+    ap.add_argument("--policies-from", default=None, help="policies.pt of an earlier run: evaluate its supermimic / ppo policies "
+                    "(under the evaluation conditions above) instead of training them")
     ap.add_argument("--out-dir", default="logs/compare")
     ap.add_argument("--no-plots", action="store_true")
     add_threads_arg(ap)
@@ -193,19 +208,20 @@ def train_ppo_method(args, lib, run_eval, log):
 @torch.no_grad()
 def trajectory(policy, heads, lib: ReferenceLibrary, args, controller=None) -> dict:
     """Deterministic play of a one-reference library from its start; per-step path and errors until it ends.
-    ``controller(env) -> actions`` replaces the policy when given."""
+    ``controller(env, measurements) -> actions`` replaces the policy when given."""
     length = int(lib.lengths[0])
     env = VehicleTrackingEnv(env_cfg(args, 1, 2, train=False), lib, device=args.device, record=False)
-    env.forced_xi = torch.tensor([1.0, 1.0, 1.0, 0.0, 0.0])
+    env.forced_xi = eval_xi(args)
     env.forced_frame[:] = lib.layout.seq_start[:1]
     obs = env.reset()
+    meas = measurement(obs["policy"], heads, args)
     hist = ObsHistory(heads, 1, args.history, args.device)
-    hist.reset(torch.arange(1, device=args.device), obs["policy"])
+    hist.reset(torch.arange(1, device=args.device), meas)
     out = {k: [] for k in ("x", "y", "lat", "beta", "util", "speed")}
     terminated = False
     for _ in range(length - 1):
         ref = lib.ref(env.frame.clone())
-        obs, _r, term, _trunc, info = env.step(policy(hist.flat(), obs["goal"]) if controller is None else controller(env))
+        obs, _r, term, _trunc, info = env.step(policy(hist.flat(), obs["goal"]) if controller is None else controller(env, meas))
         if info["done"][0]:
             terminated = bool(term[0])
             break
@@ -217,13 +233,25 @@ def trajectory(policy, heads, lib: ReferenceLibrary, args, controller=None) -> d
         out["beta"].append(float(e["beta"][0] + ref.beta[0]))
         out["util"].append(float(torch.sqrt(s[15] ** 2 + s[16] ** 2) / (env.ctx.mu[0] * 9.81)))
         out["speed"].append(float(e["speed"][0]))
-        hist.push(obs["policy"])
+        meas = measurement(obs["policy"], heads, args)
+        hist.push(meas)
     out["terminated"], out["steps"] = terminated, len(out["x"])
     return out
 
 
-def nmpc_cfg(args) -> NMPCCfg:
-    return NMPCCfg(horizon=args.nmpc_horizon, interval=args.nmpc_interval, friction=args.nmpc_friction)
+def load_policy(args, cfg, lib, method: str, blob: dict):
+    """The saved policy of ``method`` (architecture from this run's arguments, ``--history`` from the saved run)."""
+    run = argparse.Namespace(**{**vars(args), "history": blob["args"]["history"]})
+    env = VehicleTrackingEnv(cfg, lib, device=args.device, record=False)
+    _h, _t, _s, _io, _pc, policy, _c = networks(run, env, lib)
+    policy.load_state_dict(blob["policies"][method])
+    return policy
+
+
+def nmpc_cfg(args, method: str = "nmpc") -> NMPCCfg:
+    onboard = method == "nmpc_onboard"
+    return NMPCCfg(horizon=args.nmpc_horizon, interval=args.nmpc_interval, friction=args.nmpc_friction,
+                   information="onboard" if onboard else "privileged", assumed_delay=args.nmpc_assumed_delay if onboard else 0)
 
 
 @torch.no_grad()
@@ -243,9 +271,9 @@ def policy_latency_ms(policy, heads, args, reps: int = 300) -> dict:
     return {"mean_ms": float(np.mean(ts)), "p95_ms": float(np.percentile(ts, 95))}
 
 
-def run_nmpc(args, cfg, heads, eval_libs, scurves, log):
-    """Evaluate the NMPC baseline (no training) on the held-out curves and the S-bends."""
-    ctl = NMPC(cfg, cfg=nmpc_cfg(args))
+def run_nmpc(args, cfg, heads, eval_libs, scurves, log, method: str = "nmpc"):
+    """Evaluate an NMPC baseline (no training) on the held-out curves and the S-bends."""
+    ctl = NMPC(cfg, cfg=nmpc_cfg(args, method))
     log(f"nmpc: tyre fit {ctl.fit_info}; front {ctl.front}, rear {ctl.rear}")
     final = {f"mu_{mu}": evaluate(None, heads, el, args, controller=ctl) for mu, el in zip(args.mu_levels, eval_libs)}
     sc = {f"mu_{mu}": evaluate(None, heads, s, args, controller=ctl) for mu, s in zip(args.mu_levels, scurves)}
@@ -269,7 +297,7 @@ def plots(report, scurves, out_dir: Path):
             mean = lambda d: sum(v["normalized_return"] for v in d.values()) / len(d)  # noqa: E731
             for j, key in enumerate(("heldout_final", "scurve_final")):
                 for a in ax[j]:
-                    a.axhline(mean(res[key]), color=colors[m], ls="--", label=f"{m} (no training)")
+                    a.axhline(mean(res[key]), color=colors[m], ls="--", label=f"{m} (final only)")
             continue
         for j, (key, title) in enumerate((("heldout_return", "held-out curves"), ("scurve_return", "S-bend"))):
             ax[j, 0].plot([r["time_s"] / 60 for r in c], [r[key] for r in c], "-o", ms=3, color=colors[m], label=m)
@@ -315,7 +343,7 @@ def plots(report, scurves, out_dir: Path):
 
 def main(argv=None) -> int:
     args = parse(argv)
-    if "nmpc" in args.methods:  # fail before any training, not after it
+    if any(m.startswith("nmpc") for m in args.methods):  # fail before any training, not after it
         try:
             import casadi  # noqa: F401
         except ImportError:
@@ -335,15 +363,20 @@ def main(argv=None) -> int:
     run_eval = make_eval(heads, eval_libs, scurves, args)
     report = {"args": vars(args), "methods": {}, "scurve": {f"mu_{mu}": {} for mu in args.mu_levels}}
     policies, controllers = {}, {}
+    blob = torch.load(args.policies_from, map_location=args.device) if args.policies_from else None
     for m in args.methods:
-        if m == "nmpc":
-            log("=== nmpc: no training")
-            final, sc, traj, info = run_nmpc(args, cfg, heads, eval_libs, scurves, log)
+        if m.startswith("nmpc"):
+            log(f"=== {m}: no training")
+            final, sc, traj, info = run_nmpc(args, cfg, heads, eval_libs, scurves, log, m)
             report["methods"][m] = {**info, "curve": [], "heldout_final": final, "scurve_final": sc, "scurve_traj": traj}
             controllers[m] = info["nmpc"]
         else:
-            log(f"=== {m}: {args.budget_min} min training budget")
-            policy, curve, info = (train_supermimic if m == "supermimic" else train_ppo_method)(args, lib, run_eval, log)
+            if blob is not None and m in blob["policies"]:
+                log(f"=== {m}: loaded from {args.policies_from}, no training")
+                policy, curve, info = load_policy(args, cfg, lib, m, blob), [], {"loaded_from": str(args.policies_from)}
+            else:
+                log(f"=== {m}: {args.budget_min} min training budget")
+                policy, curve, info = (train_supermimic if m == "supermimic" else train_ppo_method)(args, lib, run_eval, log)
             policy.eval()
             final = {f"mu_{mu}": evaluate(policy, heads, el, args) for mu, el in zip(args.mu_levels, eval_libs)}
             sc = {f"mu_{mu}": evaluate(policy, heads, s, args) for mu, s in zip(args.mu_levels, scurves)}
