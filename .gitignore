@@ -14,3 +14,4 @@ wandb/
 .pytest_cache/
 .ruff_cache/
 experiments/**/outputs/
+!docs/results/vehicle_elk_refs.pt
