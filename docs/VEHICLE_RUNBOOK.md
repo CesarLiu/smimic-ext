@@ -17,6 +17,7 @@
 | E1 | 饱和区雅可比检查（修订后的关卡） | ✅ 大容量世界模型通过（饱和区 8 步梯度余弦 0.94，误差 0.11）；默认规模未通过 | §3.9，`docs/results/vehicle_jacobian_check*.json` |
 | 第 2 步 | 策略在附着极限附近学跟踪，大小世界模型对比（无关卡，只测量） | ✅ 已测两次（两台机器）：三档摩擦都学会（回报约 0.1 → 0.38–0.76）；大模型在 12 个对比项里 11 项更好、1 项持平，但单次运行的数字波动很大，需要多种子；终止率仍有 33–50% | §3.10，`docs/results/vehicle_limit_study.json` |
 | E6（部分） | S 弯 demo：SuperMimic 对比 PPO（同一训练库，S 弯为未见过的测试） | ✅ CPU 上跑过一次（各 8 分钟，单种子）：相同数据量下 SuperMimic 样本效率高约 3–4 倍；相同时间下 PPO 更好（0.96 对 0.81）；两者都跑完 S 弯。待 H200、多种子。NMPC 基线已实现，只用策略拿到的车载信息时：各项回报 0.99、横向误差 0.01–0.03 m，噪声、延迟、参数失配下无终止；每步求解约 9 ms，策略约 0.1 ms。这个设定下 NMPC 明显优于两个学习方法 | §3.11、§3.12，第 7 步，`docs/results/vehicle_compare_ppo_cpu*`、`vehicle_nmpc*` |
+| demo | 麋鹿测试（ISO 3888-2 风格避障变道，按锥桶评分） | ✅ CPU 上跑过：最高通过入场速度，干路 SuperMimic 60 / PPO 100 / NMPC ≥130 km/h，湿滑路 50 / ≥90 / ≥90；赛道尺寸凭记忆，未核对标准 | §3.13，第 8 步，`docs/results/vehicle_elk*` |
 
 ## 环境
 
@@ -406,7 +407,24 @@ env -u PYTHONPATH uv run python scripts/vehicle/compare_ppo.py --budget-min 0.5 
     --policy-warmup 20 --horizon 6 --ppo-envs 64 --ppo-steps 16 --out-dir logs/compare/smoke
 ```
 
-### 8. 下一步（E3/E4）
+### 8. 麋鹿测试 demo（CPU，约 10 分钟）
+
+- [ ] 用第 7 步训练出的策略和 NMPC 跑 ISO 3888-2 风格的避障变道，看谁在多高的入场速度下不碰锥桶
+
+```bash
+# 干路 60–130 km/h、湿滑路（μ=0.5）40–90 km/h；参考线已缓存在 docs/results/vehicle_elk_refs.pt
+env -u PYTHONPATH uv run python scripts/vehicle/elk_test.py --policies logs/compare/seed0/policies.pt --out-dir logs/elk
+# 带测量噪声、2 步延迟和参数失配：加 --eval-noise --eval-delay 2 --eval-mismatch
+# 只渲染其中几个：--video-cases 1.0:80,1.0:120,0.5:50,0.5:70；不要视频：--no-video
+```
+
+- 赛道（`src/supermimic/vehicles/elk.py`）：12 / 13.5 / 11 / 12.5 / 12 m，第二车道偏移 1 m，车道宽 1.1b+0.25、1.2b+0.25、1.3b+0.25。**数字凭记忆，没核对过标准原文。**
+- 评分看锥桶：没被终止，且车身四个角在各车道长度内都没出车道。输出 `report.json`、`elk_paths.png`、`elk.mp4`，最后一行是每种方法的最高通过入场速度；
+- 新的速度或路面需要重新生成参考线，这一步要 casadi（`uv pip install casadi`），结果会追加进 `--refs-cache`；只评估已有速度不需要；
+- NMPC 用车载信息版，要装 casadi；没装时脚本只跑策略；
+- 结果（CPU，§3.13）：干路 SuperMimic 60 km/h、PPO 100、NMPC ≥130；湿滑路 SuperMimic 50、PPO ≥90、NMPC ≥90。示例视频 [`docs/results/vehicle_elk.mp4`](results/vehicle_elk.mp4)（干路 80 和 120 km/h，湿滑路 50 和 70 km/h）。
+
+### 9. 下一步（E3/E4）
 
 - [x] E1 的关卡按 §3.9 修订（2026-11-04）
 - [x] 第 2 步：策略能否在附着极限附近学好（§3.10）。能；大世界模型明显更好，此后默认用大模型

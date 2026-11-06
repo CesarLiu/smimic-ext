@@ -137,8 +137,15 @@ def render(segments, params, args, out: Path) -> Path:
     stride = max(1, round(50 / args.fps))  # simulation steps per video frame (real time)
     frames = [(j, k) for j, seg in enumerate(segments) for k in range(0, seg["length"], stride)]
     fig = plt.figure(figsize=(12.8, 7.2), dpi=args.dpi)
-    gs = fig.add_gridspec(3, 2, width_ratios=(1.55, 1.0), height_ratios=(1.1, 1.0, 1.0), left=0.05, right=0.98, top=0.9, bottom=0.07, hspace=0.42, wspace=0.16)
-    ax_cam, ax_all, ax_lat, ax_util = fig.add_subplot(gs[:, 0]), fig.add_subplot(gs[0, 1]), fig.add_subplot(gs[1, 1]), fig.add_subplot(gs[2, 1])
+    elk = segments[0].get("layout") == "elk"  # wide camera on top, no whole-track panel (the track is long and 1 m wide)
+    if elk:
+        gs = fig.add_gridspec(2, 2, height_ratios=(1.35, 1.0), left=0.06, right=0.98, top=0.9, bottom=0.08, hspace=0.32, wspace=0.18)
+        ax_cam, ax_all, ax_lat, ax_util = fig.add_subplot(gs[0, :]), None, fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[1, 1])
+        bb = ax_cam.get_position()
+        y_half = args.view / 2 * (bb.height * 7.2) / (bb.width * 12.8)  # equal scaling without shrinking the axes
+    else:
+        gs = fig.add_gridspec(3, 2, width_ratios=(1.55, 1.0), height_ratios=(1.1, 1.0, 1.0), left=0.05, right=0.98, top=0.9, bottom=0.07, hspace=0.42, wspace=0.16)
+        ax_cam, ax_all, ax_lat, ax_util = fig.add_subplot(gs[:, 0]), fig.add_subplot(gs[0, 1]), fig.add_subplot(gs[1, 1]), fig.add_subplot(gs[2, 1])
     title = fig.suptitle("", fontsize=13)
     methods = list(segments[0]["runs"])
 
@@ -146,15 +153,21 @@ def render(segments, params, args, out: Path) -> Path:
         j, k = frames[frame]
         seg = segments[j]
         ref, runs, t = seg["ref"], seg["runs"], k * 0.02
-        title.set_text(f"S-bend at μ = {seg['mu']}   ({seg['speed']:.0f} m/s, arcs at {seg['ay']:.1f} μg; policies trained on random curves, never on this bend)   t = {t:4.1f} s")
+        if "title" in seg:
+            title.set_text(f"{seg['title']}   t = {t:4.1f} s")
+        else:
+            title.set_text(f"S-bend at μ = {seg['mu']}   ({seg['speed']:.0f} m/s, arcs at {seg['ay']:.1f} μg; policies trained on random curves, never on this bend)   t = {t:4.1f} s")
         for a in (ax_cam, ax_all, ax_lat, ax_util):
-            a.clear()
+            if a is not None:
+                a.clear()
         # following camera
         alive = {m: min(k, len(r["x"]) - 1) for m, r in runs.items()}
         cx = sum(runs[m]["x"][alive[m]] for m in methods) / len(methods)
         cy = sum(runs[m]["y"][alive[m]] for m in methods) / len(methods)
         h = args.view * 0.95
         ax_cam.plot(ref["x"], ref["y"], "--", color="0.55", lw=1.5, zorder=1, label="reference")
+        if seg.get("cones"):
+            ax_cam.plot([c[0] for c in seg["cones"]], [c[1] for c in seg["cones"]], "^", color="#ff8c00", ms=7, mec="k", mew=0.6, zorder=2, label="cones")
         for m in methods:
             r, i = runs[m], alive[m]
             ax_cam.plot(r["x"][: i + 1], r["y"][: i + 1], color=COLORS[m], lw=2, alpha=0.8, zorder=2)
@@ -164,25 +177,31 @@ def render(segments, params, args, out: Path) -> Path:
                 ax_cam.add_patch(Polygon(w, closed=True, fc="k", ec="k", zorder=4))
             ended = r["terminated"] and k >= len(r["x"]) - 1
             state = "TERMINATED" if ended else f"{r['speed'][i]:4.1f} m/s   lateral error {r['lat'][i]:+5.2f} m   friction use {r['util'][i]:4.2f}"
+            if "hits" in r and not ended:
+                state += "   cones: " + ("HIT" if r["hits"][i] > 0 else "clear")
             ax_cam.plot([], [], color=COLORS[m], lw=3, label=f"{NAMES[m]}: {state}")
             if ended:
                 ax_cam.plot(r["x"][i], r["y"][i], "x", color=COLORS[m], ms=16, mew=3, zorder=5)
         ax_cam.set_xlim(cx - args.view / 2, cx + args.view / 2)
-        ax_cam.set_ylim(cy - h / 2, cy + h / 2)
-        ax_cam.set_aspect("equal")
+        if elk:
+            ax_cam.set_ylim(seg["y_mid"] - y_half, seg["y_mid"] + y_half)
+        else:
+            ax_cam.set_ylim(cy - h / 2, cy + h / 2)
+            ax_cam.set_aspect("equal")
         ax_cam.set_xlabel("x [m]")
         ax_cam.set_ylabel("y [m]")
         ax_cam.grid(alpha=0.25)
-        ax_cam.legend(loc="upper left", fontsize=9, framealpha=0.9)
+        ax_cam.legend(loc="lower left" if elk else "upper left", fontsize=9, framealpha=0.9)
         # whole bend
-        ax_all.plot(ref["x"], ref["y"], "--", color="0.55", lw=1.2)
-        for m in methods:
-            r, i = runs[m], alive[m]
-            ax_all.plot(r["x"][: i + 1], r["y"][: i + 1], color=COLORS[m], lw=1.5)
-            ax_all.plot(r["x"][i], r["y"][i], "o", color=COLORS[m], ms=5)
-        ax_all.set_aspect("equal", adjustable="datalim")
-        ax_all.set_title("whole bend", fontsize=10)
-        ax_all.tick_params(labelsize=8)
+        if ax_all is not None:
+            ax_all.plot(ref["x"], ref["y"], "--", color="0.55", lw=1.2)
+            for m in methods:
+                r, i = runs[m], alive[m]
+                ax_all.plot(r["x"][: i + 1], r["y"][: i + 1], color=COLORS[m], lw=1.5)
+                ax_all.plot(r["x"][i], r["y"][i], "o", color=COLORS[m], ms=5)
+            ax_all.set_aspect("equal", adjustable="datalim")
+            ax_all.set_title("whole bend", fontsize=10)
+            ax_all.tick_params(labelsize=8)
         # time series
         T = seg["length"] * 0.02
         for a, key, lab in ((ax_lat, "lat", "lateral error [m]"), (ax_util, "util", "friction use")):

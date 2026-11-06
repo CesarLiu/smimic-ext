@@ -1,0 +1,860 @@
+{
+ "clean": {
+  "conditions": {
+   "eval_noise": false,
+   "eval_delay": 0,
+   "eval_mismatch": false
+  },
+  "highest_passed_kmh": {
+   "mu_0.5": {
+    "supermimic": 50,
+    "ppo": 90,
+    "nmpc_onboard": 90
+   },
+   "mu_1.0": {
+    "supermimic": 60,
+    "ppo": 100,
+    "nmpc_onboard": 130
+   }
+  },
+  "cases": [
+   {
+    "mu": 1.0,
+    "kmh": 60,
+    "reference_util_max": 0.5567993521690369,
+    "results": {
+     "supermimic": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 244,
+      "max_lateral_error_m": 0.3074854612350464,
+      "mean_lateral_error_m": 0.10038948810001064,
+      "max_friction_use": 0.21570682525634766
+     },
+     "ppo": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 244,
+      "max_lateral_error_m": 0.20128175616264343,
+      "mean_lateral_error_m": 0.07991341991029982,
+      "max_friction_use": 0.35969117283821106
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 244,
+      "max_lateral_error_m": 0.01917329430580139,
+      "mean_lateral_error_m": 0.0050701729912159335,
+      "max_friction_use": 0.4855400323867798
+     }
+    }
+   },
+   {
+    "mu": 1.0,
+    "kmh": 80,
+    "reference_util_max": 0.5755259394645691,
+    "results": {
+     "supermimic": {
+      "completed": true,
+      "passed": false,
+      "hit_steps": 35,
+      "steps": 196,
+      "max_lateral_error_m": 0.4323405623435974,
+      "mean_lateral_error_m": 0.16140407561593131,
+      "max_friction_use": 0.2731548249721527
+     },
+     "ppo": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 196,
+      "max_lateral_error_m": 0.23744063079357147,
+      "mean_lateral_error_m": 0.07578166242412461,
+      "max_friction_use": 0.4261910021305084
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 196,
+      "max_lateral_error_m": 0.017711427062749863,
+      "mean_lateral_error_m": 0.004756135499092844,
+      "max_friction_use": 0.5201740860939026
+     }
+    }
+   },
+   {
+    "mu": 1.0,
+    "kmh": 100,
+    "reference_util_max": 0.7109414935112,
+    "results": {
+     "supermimic": {
+      "completed": true,
+      "passed": false,
+      "hit_steps": 59,
+      "steps": 167,
+      "max_lateral_error_m": 0.6202002763748169,
+      "mean_lateral_error_m": 0.2562770212058832,
+      "max_friction_use": 0.27801749110221863
+     },
+     "ppo": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 167,
+      "max_lateral_error_m": 0.2243882268667221,
+      "mean_lateral_error_m": 0.09254850987498381,
+      "max_friction_use": 0.4552817642688751
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 167,
+      "max_lateral_error_m": 0.013270946219563484,
+      "mean_lateral_error_m": 0.004835734770751396,
+      "max_friction_use": 0.689842939376831
+     }
+    }
+   },
+   {
+    "mu": 1.0,
+    "kmh": 110,
+    "reference_util_max": 0.8086907863616943,
+    "results": {
+     "supermimic": {
+      "completed": true,
+      "passed": false,
+      "hit_steps": 54,
+      "steps": 156,
+      "max_lateral_error_m": 0.7651341557502747,
+      "mean_lateral_error_m": 0.284433957041571,
+      "max_friction_use": 0.2472342997789383
+     },
+     "ppo": {
+      "completed": false,
+      "passed": false,
+      "hit_steps": 11,
+      "steps": 147,
+      "max_lateral_error_m": 0.37947821617126465,
+      "mean_lateral_error_m": 0.14854302622474083,
+      "max_friction_use": 0.42270538210868835
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 156,
+      "max_lateral_error_m": 0.019478902220726013,
+      "mean_lateral_error_m": 0.005788609137625487,
+      "max_friction_use": 0.7728974223136902
+     }
+    }
+   },
+   {
+    "mu": 1.0,
+    "kmh": 120,
+    "reference_util_max": 0.8672720789909363,
+    "results": {
+     "supermimic": {
+      "completed": true,
+      "passed": false,
+      "hit_steps": 49,
+      "steps": 148,
+      "max_lateral_error_m": 0.9242367148399353,
+      "mean_lateral_error_m": 0.3144163818941144,
+      "max_friction_use": 0.22124336659908295
+     },
+     "ppo": {
+      "completed": false,
+      "passed": false,
+      "hit_steps": 28,
+      "steps": 96,
+      "max_lateral_error_m": 0.4298384487628937,
+      "mean_lateral_error_m": 0.14381307816021693,
+      "max_friction_use": 0.3455827832221985
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 148,
+      "max_lateral_error_m": 0.030752530321478844,
+      "mean_lateral_error_m": 0.007887213017143008,
+      "max_friction_use": 0.8191816210746765
+     }
+    }
+   },
+   {
+    "mu": 1.0,
+    "kmh": 130,
+    "reference_util_max": 0.8932725787162781,
+    "results": {
+     "supermimic": {
+      "completed": false,
+      "passed": false,
+      "hit_steps": 24,
+      "steps": 115,
+      "max_lateral_error_m": 0.5742006301879883,
+      "mean_lateral_error_m": 0.22972876209106,
+      "max_friction_use": 0.28642937541007996
+     },
+     "ppo": {
+      "completed": false,
+      "passed": false,
+      "hit_steps": 25,
+      "steps": 81,
+      "max_lateral_error_m": 0.3955466151237488,
+      "mean_lateral_error_m": 0.21200815307083293,
+      "max_friction_use": 0.4350631833076477
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 140,
+      "max_lateral_error_m": 0.03928939998149872,
+      "mean_lateral_error_m": 0.010637735966678033,
+      "max_friction_use": 0.8240527510643005
+     }
+    }
+   },
+   {
+    "mu": 0.5,
+    "kmh": 40,
+    "reference_util_max": 0.6505366563796997,
+    "results": {
+     "supermimic": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 340,
+      "max_lateral_error_m": 0.27824509143829346,
+      "mean_lateral_error_m": 0.1262506064246115,
+      "max_friction_use": 0.2946072518825531
+     },
+     "ppo": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 340,
+      "max_lateral_error_m": 0.06698883324861526,
+      "mean_lateral_error_m": 0.02211051819516043,
+      "max_friction_use": 0.4816129505634308
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 340,
+      "max_lateral_error_m": 0.013470356352627277,
+      "mean_lateral_error_m": 0.003605618827056891,
+      "max_friction_use": 0.5707520842552185
+     }
+    }
+   },
+   {
+    "mu": 0.5,
+    "kmh": 50,
+    "reference_util_max": 0.8168239593505859,
+    "results": {
+     "supermimic": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 282,
+      "max_lateral_error_m": 0.2703075408935547,
+      "mean_lateral_error_m": 0.09468641929331692,
+      "max_friction_use": 0.3297582268714905
+     },
+     "ppo": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 282,
+      "max_lateral_error_m": 0.14044678211212158,
+      "mean_lateral_error_m": 0.05757445102284716,
+      "max_friction_use": 0.5490206480026245
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 282,
+      "max_lateral_error_m": 0.0252741277217865,
+      "mean_lateral_error_m": 0.005497110553004579,
+      "max_friction_use": 0.7574406266212463
+     }
+    }
+   },
+   {
+    "mu": 0.5,
+    "kmh": 60,
+    "reference_util_max": 0.9850236177444458,
+    "results": {
+     "supermimic": {
+      "completed": true,
+      "passed": false,
+      "hit_steps": 1,
+      "steps": 244,
+      "max_lateral_error_m": 0.2820531725883484,
+      "mean_lateral_error_m": 0.09680727548469525,
+      "max_friction_use": 0.40962594747543335
+     },
+     "ppo": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 244,
+      "max_lateral_error_m": 0.17801138758659363,
+      "mean_lateral_error_m": 0.07852713490292076,
+      "max_friction_use": 0.6110599637031555
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 244,
+      "max_lateral_error_m": 0.03162101283669472,
+      "mean_lateral_error_m": 0.007015793867862443,
+      "max_friction_use": 0.7978399991989136
+     }
+    }
+   },
+   {
+    "mu": 0.5,
+    "kmh": 70,
+    "reference_util_max": 1.0598441362380981,
+    "results": {
+     "supermimic": {
+      "completed": true,
+      "passed": false,
+      "hit_steps": 14,
+      "steps": 216,
+      "max_lateral_error_m": 0.3261720538139343,
+      "mean_lateral_error_m": 0.11893312875934378,
+      "max_friction_use": 0.46993398666381836
+     },
+     "ppo": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 216,
+      "max_lateral_error_m": 0.20116044580936432,
+      "mean_lateral_error_m": 0.08112962236589112,
+      "max_friction_use": 0.6809375286102295
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 216,
+      "max_lateral_error_m": 0.040502045303583145,
+      "mean_lateral_error_m": 0.008238210254141752,
+      "max_friction_use": 0.8148161172866821
+     }
+    }
+   },
+   {
+    "mu": 0.5,
+    "kmh": 80,
+    "reference_util_max": 1.0789768695831299,
+    "results": {
+     "supermimic": {
+      "completed": true,
+      "passed": false,
+      "hit_steps": 38,
+      "steps": 196,
+      "max_lateral_error_m": 0.3881963789463043,
+      "mean_lateral_error_m": 0.15717754841375775,
+      "max_friction_use": 0.5222283601760864
+     },
+     "ppo": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 196,
+      "max_lateral_error_m": 0.21295146644115448,
+      "mean_lateral_error_m": 0.07191741809285415,
+      "max_friction_use": 0.729579508304596
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 196,
+      "max_lateral_error_m": 0.038983508944511414,
+      "mean_lateral_error_m": 0.007873984596791455,
+      "max_friction_use": 0.8497306108474731
+     }
+    }
+   },
+   {
+    "mu": 0.5,
+    "kmh": 90,
+    "reference_util_max": 1.090532898902893,
+    "results": {
+     "supermimic": {
+      "completed": true,
+      "passed": false,
+      "hit_steps": 54,
+      "steps": 180,
+      "max_lateral_error_m": 0.4319817125797272,
+      "mean_lateral_error_m": 0.19695740460690597,
+      "max_friction_use": 0.500878095626831
+     },
+     "ppo": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 180,
+      "max_lateral_error_m": 0.1606661081314087,
+      "mean_lateral_error_m": 0.0627255427860472,
+      "max_friction_use": 0.7655169367790222
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 180,
+      "max_lateral_error_m": 0.03925449401140213,
+      "mean_lateral_error_m": 0.011606560439785972,
+      "max_friction_use": 0.9460970759391785
+     }
+    }
+   }
+  ]
+ },
+ "noise_delay2_mismatch": {
+  "conditions": {
+   "eval_noise": true,
+   "eval_delay": 2,
+   "eval_mismatch": true
+  },
+  "highest_passed_kmh": {
+   "mu_0.5": {
+    "supermimic": 60,
+    "ppo": 80,
+    "nmpc_onboard": 90
+   },
+   "mu_1.0": {
+    "supermimic": 60,
+    "ppo": 100,
+    "nmpc_onboard": 130
+   }
+  },
+  "cases": [
+   {
+    "mu": 1.0,
+    "kmh": 60,
+    "reference_util_max": 0.5567993521690369,
+    "results": {
+     "supermimic": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 244,
+      "max_lateral_error_m": 0.3194158673286438,
+      "mean_lateral_error_m": 0.10052318863165996,
+      "max_friction_use": 0.2369205355644226
+     },
+     "ppo": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 244,
+      "max_lateral_error_m": 0.2088993787765503,
+      "mean_lateral_error_m": 0.07479923628169018,
+      "max_friction_use": 0.5099101662635803
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 244,
+      "max_lateral_error_m": 0.10343442857265472,
+      "mean_lateral_error_m": 0.01836027325158607,
+      "max_friction_use": 0.6278573274612427
+     }
+    }
+   },
+   {
+    "mu": 1.0,
+    "kmh": 80,
+    "reference_util_max": 0.5755259394645691,
+    "results": {
+     "supermimic": {
+      "completed": true,
+      "passed": false,
+      "hit_steps": 36,
+      "steps": 196,
+      "max_lateral_error_m": 0.4639720022678375,
+      "mean_lateral_error_m": 0.16518334642366334,
+      "max_friction_use": 0.2938844561576843
+     },
+     "ppo": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 196,
+      "max_lateral_error_m": 0.2492995709180832,
+      "mean_lateral_error_m": 0.07248153964931052,
+      "max_friction_use": 0.5707310438156128
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 196,
+      "max_lateral_error_m": 0.0639929324388504,
+      "mean_lateral_error_m": 0.01922488124970355,
+      "max_friction_use": 0.569117546081543
+     }
+    }
+   },
+   {
+    "mu": 1.0,
+    "kmh": 100,
+    "reference_util_max": 0.7109414935112,
+    "results": {
+     "supermimic": {
+      "completed": true,
+      "passed": false,
+      "hit_steps": 59,
+      "steps": 167,
+      "max_lateral_error_m": 0.6458545327186584,
+      "mean_lateral_error_m": 0.2571241851461057,
+      "max_friction_use": 0.29370468854904175
+     },
+     "ppo": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 167,
+      "max_lateral_error_m": 0.2280840277671814,
+      "mean_lateral_error_m": 0.08643566389763824,
+      "max_friction_use": 0.6104059815406799
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 167,
+      "max_lateral_error_m": 0.0665149837732315,
+      "mean_lateral_error_m": 0.018937838762541296,
+      "max_friction_use": 0.7751842737197876
+     }
+    }
+   },
+   {
+    "mu": 1.0,
+    "kmh": 110,
+    "reference_util_max": 0.8086907863616943,
+    "results": {
+     "supermimic": {
+      "completed": true,
+      "passed": false,
+      "hit_steps": 54,
+      "steps": 156,
+      "max_lateral_error_m": 0.7909456491470337,
+      "mean_lateral_error_m": 0.28568439312320865,
+      "max_friction_use": 0.26109254360198975
+     },
+     "ppo": {
+      "completed": false,
+      "passed": false,
+      "hit_steps": 10,
+      "steps": 142,
+      "max_lateral_error_m": 0.36782029271125793,
+      "mean_lateral_error_m": 0.13729898217928937,
+      "max_friction_use": 0.5671693682670593
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 156,
+      "max_lateral_error_m": 0.05596793070435524,
+      "mean_lateral_error_m": 0.01592596778229602,
+      "max_friction_use": 0.7949206829071045
+     }
+    }
+   },
+   {
+    "mu": 1.0,
+    "kmh": 120,
+    "reference_util_max": 0.8672720789909363,
+    "results": {
+     "supermimic": {
+      "completed": true,
+      "passed": false,
+      "hit_steps": 49,
+      "steps": 148,
+      "max_lateral_error_m": 0.9423117637634277,
+      "mean_lateral_error_m": 0.3141240779233557,
+      "max_friction_use": 0.24369865655899048
+     },
+     "ppo": {
+      "completed": false,
+      "passed": false,
+      "hit_steps": 27,
+      "steps": 98,
+      "max_lateral_error_m": 0.48224297165870667,
+      "mean_lateral_error_m": 0.15066716274163072,
+      "max_friction_use": 0.39661601185798645
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 148,
+      "max_lateral_error_m": 0.050550710409879684,
+      "mean_lateral_error_m": 0.015696751650194875,
+      "max_friction_use": 0.7928225994110107
+     }
+    }
+   },
+   {
+    "mu": 1.0,
+    "kmh": 130,
+    "reference_util_max": 0.8932725787162781,
+    "results": {
+     "supermimic": {
+      "completed": false,
+      "passed": false,
+      "hit_steps": 24,
+      "steps": 117,
+      "max_lateral_error_m": 0.5579234957695007,
+      "mean_lateral_error_m": 0.226144500097653,
+      "max_friction_use": 0.32718518376350403
+     },
+     "ppo": {
+      "completed": false,
+      "passed": false,
+      "hit_steps": 25,
+      "steps": 82,
+      "max_lateral_error_m": 0.38235118985176086,
+      "mean_lateral_error_m": 0.21580757564125774,
+      "max_friction_use": 0.4912432134151459
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 140,
+      "max_lateral_error_m": 0.05045947805047035,
+      "mean_lateral_error_m": 0.014629547618580497,
+      "max_friction_use": 0.762282133102417
+     }
+    }
+   },
+   {
+    "mu": 0.5,
+    "kmh": 40,
+    "reference_util_max": 0.6505366563796997,
+    "results": {
+     "supermimic": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 340,
+      "max_lateral_error_m": 0.2717714309692383,
+      "mean_lateral_error_m": 0.1255509026573487,
+      "max_friction_use": 0.33519989252090454
+     },
+     "ppo": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 340,
+      "max_lateral_error_m": 0.05451895296573639,
+      "mean_lateral_error_m": 0.019261182964261117,
+      "max_friction_use": 0.6564409732818604
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 340,
+      "max_lateral_error_m": 0.011572251096367836,
+      "mean_lateral_error_m": 0.003127719336495883,
+      "max_friction_use": 0.6293942332267761
+     }
+    }
+   },
+   {
+    "mu": 0.5,
+    "kmh": 50,
+    "reference_util_max": 0.8168239593505859,
+    "results": {
+     "supermimic": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 282,
+      "max_lateral_error_m": 0.2708427309989929,
+      "mean_lateral_error_m": 0.09434929633315572,
+      "max_friction_use": 0.3691316246986389
+     },
+     "ppo": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 282,
+      "max_lateral_error_m": 0.1480053812265396,
+      "mean_lateral_error_m": 0.057653698499188916,
+      "max_friction_use": 0.7189249992370605
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 282,
+      "max_lateral_error_m": 0.07907241582870483,
+      "mean_lateral_error_m": 0.022020626062453245,
+      "max_friction_use": 0.8559637069702148
+     }
+    }
+   },
+   {
+    "mu": 0.5,
+    "kmh": 60,
+    "reference_util_max": 0.9850236177444458,
+    "results": {
+     "supermimic": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 244,
+      "max_lateral_error_m": 0.2929568290710449,
+      "mean_lateral_error_m": 0.09602244770528774,
+      "max_friction_use": 0.4486144483089447
+     },
+     "ppo": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 244,
+      "max_lateral_error_m": 0.19162291288375854,
+      "mean_lateral_error_m": 0.07392572636511509,
+      "max_friction_use": 0.7983603477478027
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 244,
+      "max_lateral_error_m": 0.0923796147108078,
+      "mean_lateral_error_m": 0.0277363631974633,
+      "max_friction_use": 0.8747434616088867
+     }
+    }
+   },
+   {
+    "mu": 0.5,
+    "kmh": 70,
+    "reference_util_max": 1.0598441362380981,
+    "results": {
+     "supermimic": {
+      "completed": true,
+      "passed": false,
+      "hit_steps": 14,
+      "steps": 216,
+      "max_lateral_error_m": 0.34951797127723694,
+      "mean_lateral_error_m": 0.11886171558119159,
+      "max_friction_use": 0.5125792026519775
+     },
+     "ppo": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 216,
+      "max_lateral_error_m": 0.23901130259037018,
+      "mean_lateral_error_m": 0.08051878363400665,
+      "max_friction_use": 0.8166158199310303
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 216,
+      "max_lateral_error_m": 0.09305771440267563,
+      "mean_lateral_error_m": 0.03238406750395247,
+      "max_friction_use": 0.8385530710220337
+     }
+    }
+   },
+   {
+    "mu": 0.5,
+    "kmh": 80,
+    "reference_util_max": 1.0789768695831299,
+    "results": {
+     "supermimic": {
+      "completed": true,
+      "passed": false,
+      "hit_steps": 39,
+      "steps": 196,
+      "max_lateral_error_m": 0.4187788963317871,
+      "mean_lateral_error_m": 0.15830623927181572,
+      "max_friction_use": 0.557157039642334
+     },
+     "ppo": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 196,
+      "max_lateral_error_m": 0.2892892062664032,
+      "mean_lateral_error_m": 0.08404372248166271,
+      "max_friction_use": 0.8633314967155457
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 196,
+      "max_lateral_error_m": 0.12606412172317505,
+      "mean_lateral_error_m": 0.036524870233781204,
+      "max_friction_use": 0.9506138563156128
+     }
+    }
+   },
+   {
+    "mu": 0.5,
+    "kmh": 90,
+    "reference_util_max": 1.090532898902893,
+    "results": {
+     "supermimic": {
+      "completed": true,
+      "passed": false,
+      "hit_steps": 53,
+      "steps": 180,
+      "max_lateral_error_m": 0.45836493372917175,
+      "mean_lateral_error_m": 0.1983382911705355,
+      "max_friction_use": 0.5338846445083618
+     },
+     "ppo": {
+      "completed": true,
+      "passed": false,
+      "hit_steps": 2,
+      "steps": 180,
+      "max_lateral_error_m": 0.23377522826194763,
+      "mean_lateral_error_m": 0.07472864227425732,
+      "max_friction_use": 0.9021943211555481
+     },
+     "nmpc_onboard": {
+      "completed": true,
+      "passed": true,
+      "hit_steps": 0,
+      "steps": 180,
+      "max_lateral_error_m": 0.17283529043197632,
+      "mean_lateral_error_m": 0.043355213779552274,
+      "max_friction_use": 0.9759027361869812
+     }
+    }
+   }
+  ]
+ }
+}
