@@ -34,7 +34,8 @@ from supermimic.vehicles.env import ReferenceLibrary, VehicleTrackingEnv
 from supermimic.vehicles.learner import VehicleHeads
 from supermimic.vehicles.threads import add_threads_arg, limit_threads
 
-NAMES = {"supermimic": "SuperMimic", "ppo": "PPO", "nmpc": "NMPC (true state)", "nmpc_onboard": "NMPC (on-board)"}
+NAMES = {"supermimic": "SuperMimic", "ppo": "PPO", "nmpc": "NMPC (true state)", "nmpc_onboard": "NMPC (on-board)",
+         "supermimic_chassis": "SuperMimic + chassis", "ppo_chassis": "PPO + chassis"}
 
 
 def parse(argv=None):
@@ -67,13 +68,14 @@ def drive(policy, heads, lib: ReferenceLibrary, args, controller=None) -> dict:
     hist = ObsHistory(heads, 1, args.history, args.device)
     hist.reset(torch.arange(1, device=args.device), meas)
     mu = float(env.ctx.mu[0])
-    keys = ("x", "y", "yaw", "delta", "speed", "lat", "util")
+    keys = ("x", "y", "yaw", "delta", "delta_r", "speed", "lat", "util")
     out = {k: [] for k in keys}
 
     def record(ref):
         s = env.s[0]
         e = tracking.errors(env.s, ref)
-        for k, v in (("x", s[X]), ("y", s[Y]), ("yaw", s[YAW]), ("delta", s[DELTA]), ("speed", torch.hypot(s[VX], s[VY])),
+        dr = env.act.chassis[0, 0] if env.act.chassis is not None else torch.zeros(())
+        for k, v in (("x", s[X]), ("y", s[Y]), ("yaw", s[YAW]), ("delta", s[DELTA]), ("delta_r", dr), ("speed", torch.hypot(s[VX], s[VY])),
                      ("lat", e["lat"][0]), ("util", torch.hypot(s[AX], s[AY]) / (mu * 9.81))):
             out[k].append(float(v))
 
@@ -91,7 +93,7 @@ def drive(policy, heads, lib: ReferenceLibrary, args, controller=None) -> dict:
     return out
 
 
-def car_outline(x, y, yaw, delta, p):
+def car_outline(x, y, yaw, delta, p, delta_r=0.0):
     """Body and wheel polygons (world coordinates) of a car at pose (x, y, yaw) with front-wheel angle delta."""
     c, s = math.cos(yaw), math.sin(yaw)
     to_world = lambda pts: [(x + c * u - s * v, y + s * u + c * v) for u, v in pts]  # noqa: E731
@@ -103,7 +105,7 @@ def car_outline(x, y, yaw, delta, p):
         ca, sa = math.cos(ang), math.sin(ang)
         return to_world([(u0 + ca * du - sa * dv, v0 + sa * du + ca * dv) for du, dv in ((wl, -ww), (wl, ww), (-wl, ww), (-wl, -ww))])
 
-    wheels = [wheel(p.a, -p.T_f / 2, delta), wheel(p.a, p.T_f / 2, delta), wheel(-p.b, -p.T_r / 2, 0.0), wheel(-p.b, p.T_r / 2, 0.0)]
+    wheels = [wheel(p.a, -p.T_f / 2, delta), wheel(p.a, p.T_f / 2, delta), wheel(-p.b, -p.T_r / 2, delta_r), wheel(-p.b, p.T_r / 2, delta_r)]
     return body, wheels
 
 
@@ -171,7 +173,7 @@ def render(segments, params, args, out: Path) -> Path:
         for m in methods:
             r, i = runs[m], alive[m]
             ax_cam.plot(r["x"][: i + 1], r["y"][: i + 1], color=COLORS[m], lw=2, alpha=0.8, zorder=2)
-            body, wheels = car_outline(r["x"][i], r["y"][i], r["yaw"][i], r["delta"][i], params)
+            body, wheels = car_outline(r["x"][i], r["y"][i], r["yaw"][i], r["delta"][i], params, r.get("delta_r", [0.0] * (i + 1))[i])
             ax_cam.add_patch(Polygon(body, closed=True, fc=COLORS[m], ec="k", lw=1, alpha=0.45, zorder=3))
             for w in wheels:
                 ax_cam.add_patch(Polygon(w, closed=True, fc="k", ec="k", zorder=4))

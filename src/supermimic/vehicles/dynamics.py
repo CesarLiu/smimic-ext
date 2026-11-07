@@ -29,6 +29,11 @@ compares against):
 
 Per-environment sim context (``Context``): road friction scale, tyre stiffness scale, mass scale and CoG
 shift; everything else comes from ``VehicleParams``.
+
+Optional chassis actuators (``chassis``, (n, 3), held over the control step; VEHICLE_PROPOSAL.md §10): rear-wheel
+angle [rad], yaw moment [N m] from a left / right drive-torque difference on the rear axle, and an offset of the
+front axle's share of the roll stiffness (the total stays the same, so the offset moves lateral load transfer
+between the axles). ``chassis=None`` is the plain vehicle, bit for bit.
 """
 
 from __future__ import annotations
@@ -137,8 +142,9 @@ class VehicleDynamics:
 
     # ------------------------------------------------------------------ forces
 
-    def tyre_state(self, s: torch.Tensor, ctx: Context):
-        """Vertical loads, slips, slip angles, camber and the combined-slip tyre forces, (n, 4) each (LF, RF, LR, RR)."""
+    def tyre_state(self, s: torch.Tensor, ctx: Context, chassis: torch.Tensor | None = None):
+        """Vertical loads, slips, slip angles, camber and the combined-slip tyre forces, (n, 4) each (LF, RF, LR, RR).
+        ``chassis``: see the module docstring (rear-wheel angle and roll-stiffness split are used here)."""
         p = self.p
         a, b, m_s, _m, k_pitch, c_pitch = self._geometry(ctx)
         L = a + b
@@ -151,8 +157,14 @@ class VehicleDynamics:
         fz0_r = (m_s * G * a / L + p.m_ur * G) / 2
         d_long = (k_pitch * pitch + c_pitch * pitch_rate) / L + (p.m_uf + p.m_ur) * ax * p.R_w / L  # off the front axle
         # roll < 0 (left turn) loads wheels 0 / 2, which sit at y = -T/2 (see WHEELS)
-        d_lat_f = (self.k_roll_f * roll + self.c_roll_f * roll_rate) / p.T_f - p.m_uf * ay * p.R_w / p.T_f
-        d_lat_r = (self.k_roll_r * roll + self.c_roll_r * roll_rate) / p.T_r - p.m_ur * ay * p.R_w / p.T_r
+        if chassis is None:
+            k_f, k_r = self.k_roll_f, self.k_roll_r
+        else:  # active anti-roll: shift the front axle's share of the (unchanged) total roll stiffness
+            k_tot = self.k_roll_f + self.k_roll_r
+            share = (self.k_roll_f / k_tot + chassis[:, 2]).clamp(0.05, 0.95)
+            k_f, k_r = share * k_tot, (1 - share) * k_tot
+        d_lat_f = (k_f * roll + self.c_roll_f * roll_rate) / p.T_f - p.m_uf * ay * p.R_w / p.T_f
+        d_lat_r = (k_r * roll + self.c_roll_r * roll_rate) / p.T_r - p.m_ur * ay * p.R_w / p.T_r
         fz = torch.stack([fz0_f - d_long / 2 - d_lat_f, fz0_f - d_long / 2 + d_lat_f, fz0_r + d_long / 2 - d_lat_r, fz0_r + d_long / 2 + d_lat_r], -1).clamp_min(1.0)
 
         # camber (CommonRoad's suspension kinematics, heave neglected); unsprung roll from tyre compliance
@@ -169,13 +181,19 @@ class VehicleDynamics:
         vy_f, vy_r = vy + a * r, vy - b * r
         vx_l_f, vx_r_f = vx + 0.5 * p.T_f * r, vx - 0.5 * p.T_f * r
         vx_l_r, vx_r_r = vx + 0.5 * p.T_r * r, vx - 0.5 * p.T_r * r
-        u = torch.stack([vx_l_f * cd + vy_f * sd, vx_r_f * cd + vy_f * sd, vx_l_r, vx_r_r], -1).clamp_min(V_EPS)
+        if chassis is None:
+            u = torch.stack([vx_l_f * cd + vy_f * sd, vx_r_f * cd + vy_f * sd, vx_l_r, vx_r_r], -1).clamp_min(V_EPS)
+            dr = 0.0
+        else:  # rear-wheel steering
+            dr = chassis[:, 0]
+            cr, sr = torch.cos(dr), torch.sin(dr)
+            u = torch.stack([vx_l_f * cd + vy_f * sd, vx_r_f * cd + vy_f * sd, vx_l_r * cr + vy_r * sr, vx_r_r * cr + vy_r * sr], -1).clamp_min(V_EPS)
         kappa = 1 - p.R_w * s[:, W] / u
         alpha = torch.stack([
             torch.atan(vy_f / vx_l_f.clamp_min(V_EPS)) - delta,
             torch.atan(vy_f / vx_r_f.clamp_min(V_EPS)) - delta,
-            torch.atan(vy_r / vx_l_r.clamp_min(V_EPS)),
-            torch.atan(vy_r / vx_r_r.clamp_min(V_EPS)),
+            torch.atan(vy_r / vx_l_r.clamp_min(V_EPS)) - dr,
+            torch.atan(vy_r / vx_r_r.clamp_min(V_EPS)) - dr,
         ], -1)
         tp = p.tire
         mu = ctx.mu[:, None]
@@ -237,14 +255,17 @@ class VehicleDynamics:
 
     # ------------------------------------------------------------------ integration
 
-    def substep(self, s, flags, steer_rate, accel, ctx: Context):
+    def substep(self, s, flags, steer_rate, accel, ctx: Context, chassis: torch.Tensor | None = None):
         p, h = self.p, self.h
         a, b, m_s, m, k_pitch, c_pitch = self._geometry(ctx)
         I_z = p.I_z * ctx.mass
         I_roll = (p.I_phi_s + p.m_s * p.h_s**2) * ctx.mass
         I_pitch = (p.I_y_s + p.m_s * p.h_s**2) * ctx.mass
-        ts = self.tyre_state(s, ctx)
+        ts = self.tyre_state(s, ctx, chassis)
         drive, brake = self.wheel_torques(accel, m)
+        if chassis is not None:  # torque vectoring: +dT on wheel 2, -dT on wheel 3 gives the yaw moment (see sum_n)
+            dT = chassis[:, 1] * p.R_w / p.T_r
+            drive = drive + torch.stack([torch.zeros_like(dT), torch.zeros_like(dT), dT, -dT], -1)
         flags = flags.clone()
         if self.assist.abs:
             brake, flags[:, 0:4] = self._abs(brake, ts, s, flags)
@@ -254,11 +275,16 @@ class VehicleDynamics:
         fx, fy = ts["fx"], ts["fy"]
         delta = s[:, DELTA]
         cd, sd = torch.cos(delta), torch.sin(delta)
-        sum_x = fx[:, 2] + fx[:, 3] + (fx[:, 0] + fx[:, 1]) * cd - (fy[:, 0] + fy[:, 1]) * sd
-        sum_y = (fy[:, 0] + fy[:, 1]) * cd + (fx[:, 0] + fx[:, 1]) * sd + fy[:, 2] + fy[:, 3]
+        if chassis is None:
+            fx_r, fy_r = fx[:, 2:], fy[:, 2:]
+        else:  # rear wheel forces into the body frame
+            cr, sr = torch.cos(chassis[:, 0:1]), torch.sin(chassis[:, 0:1])
+            fx_r, fy_r = fx[:, 2:] * cr - fy[:, 2:] * sr, fy[:, 2:] * cr + fx[:, 2:] * sr
+        sum_x = fx_r[:, 0] + fx_r[:, 1] + (fx[:, 0] + fx[:, 1]) * cd - (fy[:, 0] + fy[:, 1]) * sd
+        sum_y = (fy[:, 0] + fy[:, 1]) * cd + (fx[:, 0] + fx[:, 1]) * sd + fy_r[:, 0] + fy_r[:, 1]
         sum_n = ((fy[:, 0] + fy[:, 1]) * a * cd + (fx[:, 0] + fx[:, 1]) * a * sd
                  + (fy[:, 1] - fy[:, 0]) * 0.5 * p.T_f * sd + (fx[:, 0] - fx[:, 1]) * 0.5 * p.T_f * cd
-                 + (fx[:, 2] - fx[:, 3]) * 0.5 * p.T_r - (fy[:, 2] + fy[:, 3]) * b)
+                 + (fx_r[:, 0] - fx_r[:, 1]) * 0.5 * p.T_r - (fy_r[:, 0] + fy_r[:, 1]) * b)
         ax, ay = sum_x / m, sum_y / m
         vx, vy, r = s[:, VX], s[:, VY], s[:, R]
         roll, roll_rate, pitch, pitch_rate = s[:, ROLL], s[:, ROLL_RATE], s[:, PITCH], s[:, PITCH_RATE]
@@ -289,11 +315,12 @@ class VehicleDynamics:
         out[:, AX], out[:, AY] = ax, ay
         return out, flags
 
-    def step(self, s, flags, steer_rate, accel, ctx: Context):
-        """One control step with the inputs held (zero-order hold). ``flags`` (n, 5): ABS per wheel, ESC."""
+    def step(self, s, flags, steer_rate, accel, ctx: Context, chassis: torch.Tensor | None = None):
+        """One control step with the inputs held (zero-order hold). ``flags`` (n, 5): ABS per wheel, ESC.
+        ``chassis`` (n, 3) or None: see the module docstring."""
         for _ in range(self.substeps):
             sr, ac = self.constrain(s, steer_rate, accel)
-            s, flags = self.substep(s, flags, sr, ac, ctx)
+            s, flags = self.substep(s, flags, sr, ac, ctx, chassis)
         return s, flags
 
     def new_flags(self, n: int, device="cpu", dtype=torch.float32) -> torch.Tensor:

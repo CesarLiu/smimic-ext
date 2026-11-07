@@ -457,7 +457,11 @@ class NMPC:
             if onboard:  # what the actuators will apply once the delay has passed
                 sent = np.array([math.tanh(out[i, 0]) * ec.steer_scale, math.tanh(out[i, 1]) * ec.accel_scale])
                 self.sent[i] = [*self.sent[i], sent][-max(D, 1):]
-        return torch.as_tensor(out, dtype=env.s.dtype, device=env.s.device)
+        act = torch.as_tensor(out, dtype=env.s.dtype, device=env.s.device)
+        extra = env.prev_action.shape[-1] - NU
+        if extra > 0:  # chassis actuators (rear steer, yaw moment, roll split) held neutral: a conventional controller
+            act = torch.cat([act, torch.zeros(act.shape[0], extra, dtype=act.dtype, device=act.device)], -1)
+        return act
 
     def timing(self) -> dict:
         t = np.asarray(self.solve_ms) if self.solve_ms else np.zeros(1)

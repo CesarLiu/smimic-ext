@@ -35,7 +35,7 @@ from supermimic.vehicles.dynamics import (
     Y,
 )
 from supermimic.vehicles.env import (
-    ACTION_DIM,
+    N_CHASSIS,
     XI_DIM,
     ReferenceLibrary,
     VehicleEnvCfg,
@@ -46,7 +46,8 @@ from supermimic.world_model.heads_base import AnalyticHeadsBase, HeadsStep
 from supermimic.world_model.spec_base import StateSpecBase, StateSpecCfgBase
 
 # Logged state layout (VehicleEnvCfg.state_dim with max_delay = 3): sim state 0..16, a_act 17,
-# pending commands 18..23, ABS flags 24..27, ESC flag 28.
+# pending commands 18..23, ABS flags 24..27, ESC flag 28. With the chassis actuators: a_act 17, chassis
+# actuator states 18..20 (rear-wheel angle, yaw moment, roll-split offset), pending commands 21..35, flags 36..40.
 A_ACT = 17
 
 
@@ -63,11 +64,28 @@ class VehicleStateSpecCfg(StateSpecCfgBase):
     action_clip: float = 3.0
     steer_rate_max: float = 0.4
     steer_max: float = 1.066
+    # chassis actuators (VehicleEnvCfg.chassis and its scales / time constants)
+    chassis: bool = False
+    rear_steer_scale: float = 0.07
+    rear_steer_tau: float = 0.05
+    yaw_moment_scale: float = 3000.0
+    yaw_moment_tau: float = 0.05
+    roll_split_scale: float = 0.2
+    roll_split_tau: float = 0.1
 
     @classmethod
     def from_env(cls, env_cfg: VehicleEnvCfg, params) -> VehicleStateSpecCfg:
         return cls(dt=env_cfg.dt, max_delay=env_cfg.max_delay, steer_scale=env_cfg.steer_scale, steer_tau=env_cfg.steer_tau,
-                   accel_scale=env_cfg.accel_scale, accel_tau=env_cfg.accel_tau, action_clip=env_cfg.action_clip, steer_rate_max=params.steer_rate_max, steer_max=params.steer_max)
+                   accel_scale=env_cfg.accel_scale, accel_tau=env_cfg.accel_tau, action_clip=env_cfg.action_clip, steer_rate_max=params.steer_rate_max, steer_max=params.steer_max,
+                   chassis=env_cfg.chassis, rear_steer_scale=env_cfg.rear_steer_scale, rear_steer_tau=env_cfg.rear_steer_tau, yaw_moment_scale=env_cfg.yaw_moment_scale,
+                   yaw_moment_tau=env_cfg.yaw_moment_tau, roll_split_scale=env_cfg.roll_split_scale, roll_split_tau=env_cfg.roll_split_tau)
+
+    def env_like(self) -> VehicleEnvCfg:
+        """The actuator part of the environment config (for ``actuator_update``)."""
+        return VehicleEnvCfg(dt=self.dt, max_delay=self.max_delay, steer_scale=self.steer_scale, steer_tau=self.steer_tau, accel_scale=self.accel_scale,
+                             accel_tau=self.accel_tau, action_clip=self.action_clip, chassis=self.chassis, rear_steer_scale=self.rear_steer_scale,
+                             rear_steer_tau=self.rear_steer_tau, yaw_moment_scale=self.yaw_moment_scale, yaw_moment_tau=self.yaw_moment_tau,
+                             roll_split_scale=self.roll_split_scale, roll_split_tau=self.roll_split_tau)
 
     def build(self, device, dtype=torch.float32) -> VehicleStateSpec:
         return VehicleStateSpec(self, device, dtype)
@@ -76,21 +94,26 @@ class VehicleStateSpecCfg(StateSpecCfgBase):
 class VehicleStateSpec(StateSpecBase):
     def __init__(self, cfg: VehicleStateSpecCfg, device, dtype=torch.float32):
         self.cfg, self.dt = cfg, cfg.dt
-        self.state_dim = 17 + 1 + cfg.max_delay * ACTION_DIM + 5
+        env_like = cfg.env_like()
+        self.n_chassis = N_CHASSIS if cfg.chassis else 0
+        self.cmd0 = A_ACT + 1 + self.n_chassis  # first pending-command column
+        self.state_dim = env_like.state_dim
         self.feat_dim = self.state_dim - 3
         self.delta_dim = self.state_dim
         self.err_dim = self.state_dim
-        self.action_dim = ACTION_DIM
+        self.action_dim = env_like.action_dim
         self.xi_dim = XI_DIM
-        n_cmd = cfg.max_delay * ACTION_DIM
+        n_cmd = cfg.max_delay * self.action_dim
+        ch_err = [0.002, 100.0, 0.01] if cfg.chassis else []  # rear-wheel angle, yaw moment, roll-split offset
+        ch_in = [0.05, 2000.0, 0.1] if cfg.chassis else []
         # nominal scales: error (state units per normalised unit), network output, input features
         per = {"x": 0.05, "y": 0.05, "yaw": 0.01, "vx": 0.1, "vy": 0.05, "r": 0.02, "delta": 0.005, "roll": 0.005, "roll_rate": 0.05,
                "pitch": 0.002, "pitch_rate": 0.02, "w": 2.0, "a": 0.3, "a_act": 0.05, "cmd": 0.05, "flag": 0.5}
         err = [per["x"], per["y"], per["yaw"], per["vx"], per["vy"], per["r"], per["delta"], per["roll"], per["roll_rate"], per["pitch"], per["pitch_rate"],
-               *[per["w"]] * 4, per["a"], per["a"], per["a_act"], *[per["cmd"]] * n_cmd, *[per["flag"]] * 5]
+               *[per["w"]] * 4, per["a"], per["a"], per["a_act"], *ch_err, *[per["cmd"]] * n_cmd, *[per["flag"]] * 5]
         self.err_scale = torch.tensor(err, device=device, dtype=dtype)
         self.out_scale = self.err_scale.clone()
-        inp = [10.0, 1.0, 0.5, 0.1, 0.05, 0.5, 0.02, 0.2, *[30.0] * 4, 5.0, 5.0, 3.0, *[1.0] * n_cmd, *[1.0] * 5]
+        inp = [10.0, 1.0, 0.5, 0.1, 0.05, 0.5, 0.02, 0.2, *[30.0] * 4, 5.0, 5.0, 3.0, *ch_in, *[1.0] * n_cmd, *[1.0] * 5]
         self.in_scale = torch.tensor(inp, device=device, dtype=dtype)
         self.xi_offset = torch.tensor([0.85, 1.0, 1.0, 0.0, 1.5], device=device, dtype=dtype)
         self.xi_scale = torch.tensor([0.25, 0.15, 0.125, 0.1, 1.5], device=device, dtype=dtype)
@@ -117,15 +140,18 @@ class VehicleStateSpec(StateSpecBase):
         return out
 
     def step_known(self, s, s_next, action, xi):
-        """Steering angle, longitudinal response and pending actions: exact (``env.actuator_update``)."""
-        c = self.cfg
-        env_like = VehicleEnvCfg(dt=c.dt, max_delay=c.max_delay, steer_scale=c.steer_scale, steer_tau=c.steer_tau, accel_scale=c.accel_scale, accel_tau=c.accel_tau, action_clip=c.action_clip)
-        pending = s[..., A_ACT + 1:A_ACT + 1 + c.max_delay * ACTION_DIM].reshape(*s.shape[:-1], c.max_delay, ACTION_DIM)
-        _, a_new, pend_new, delta_next = actuator_update(env_like, action, pending, xi[..., 4].long(), s[..., DELTA], s[..., A_ACT], c.steer_rate_max, c.steer_max)
+        """Steering angle, longitudinal response, chassis actuator states and pending actions: exact
+        (``env.actuator_update``)."""
+        c, k, A = self.cfg, self.cmd0, self.action_dim
+        pending = s[..., k:k + c.max_delay * A].reshape(*s.shape[:-1], c.max_delay, A)
+        ch = s[..., A_ACT + 1:A_ACT + 1 + N_CHASSIS] if c.chassis else None
+        upd = actuator_update(c.env_like(), action, pending, xi[..., 4].long(), s[..., DELTA], s[..., A_ACT], c.steer_rate_max, c.steer_max, ch)
         out = s_next.clone()
-        out[..., DELTA] = delta_next
-        out[..., A_ACT] = a_new
-        out[..., A_ACT + 1:A_ACT + 1 + c.max_delay * ACTION_DIM] = pend_new.reshape(*s.shape[:-1], -1)
+        out[..., DELTA] = upd[3]
+        out[..., A_ACT] = upd[1]
+        if c.chassis:
+            out[..., A_ACT + 1:A_ACT + 1 + N_CHASSIS] = upd[4]
+        out[..., k:k + c.max_delay * A] = upd[2].reshape(*s.shape[:-1], -1)
         return out
 
     def error_vector(self, s_pred, s_true):
@@ -142,7 +168,6 @@ class VehicleStateSpec(StateSpecBase):
 
 
 class VehicleHeads(AnalyticHeadsBase):
-    obs_dim = 12
     reward_term_names = tracking.TERM_NAMES
     term_feat_dim = 5
     critic_feat_dim = 5
@@ -150,7 +175,10 @@ class VehicleHeads(AnalyticHeadsBase):
     def __init__(self, env_cfg: VehicleEnvCfg, wheel_radius: float):
         self.cfg = env_cfg.tracking
         self.R_w = wheel_radius
-        self._noise = torch.tensor([0.1, 0.01, 0.1, 0.1, 0.002, *[0.05] * 4, 0.05, 0.0, 0.0])
+        self.n_chassis = N_CHASSIS if env_cfg.chassis else 0
+        self.obs_dim = 10 + self.n_chassis + env_cfg.action_dim  # 12 for the plain vehicle
+        ch_noise = [0.002, 50.0, 0.01] if env_cfg.chassis else []
+        self._noise = torch.tensor([0.1, 0.01, 0.1, 0.1, 0.002, *[0.05] * 4, 0.05, *ch_noise, *[0.0] * env_cfg.action_dim])
 
     @property
     def max_step_reward(self) -> float:
@@ -158,10 +186,18 @@ class VehicleHeads(AnalyticHeadsBase):
 
     def observation(self, s, prev_action, xi):
         """``VehicleTrackingEnv.observation``, from the logged state."""
-        return torch.cat([s[..., VX:VX + 1], s[..., R:R + 1], s[..., AX:AY + 1], s[..., DELTA:DELTA + 1], s[..., W] * self.R_w, s[..., A_ACT:A_ACT + 1], prev_action], -1)
+        return torch.cat([s[..., VX:VX + 1], s[..., R:R + 1], s[..., AX:AY + 1], s[..., DELTA:DELTA + 1], s[..., W] * self.R_w,
+                          s[..., A_ACT:A_ACT + 1 + self.n_chassis], prev_action], -1)
 
     def obs_noise_half(self):
         return self._noise
+
+    def obs_scale(self):
+        """Ones for the plain vehicle (as before); the chassis actuator states (rad, N m, share) brought to O(1)."""
+        s = torch.ones(self.obs_dim)
+        if self.n_chassis:
+            s[10:13] = torch.tensor([10.0, 1e-3, 5.0])
+        return s
 
     def flatten_obs_history(self, hist):
         H, N, D = hist.shape

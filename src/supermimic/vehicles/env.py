@@ -48,7 +48,9 @@ from supermimic.vehicles.dynamics import (
 )
 from supermimic.vehicles.params import VehicleParams
 
-ACTION_DIM = 2
+ACTION_DIM = 2  # the plain vehicle; ``VehicleEnvCfg.action_dim`` is 5 with the chassis actuators
+CHASSIS_ACTION_DIM = 5
+N_CHASSIS = 3  # chassis actuator states: rear-wheel angle, yaw moment, roll-stiffness split offset
 XI_NAMES = ("mu", "tire_stiffness", "mass", "cog_shift", "delay")
 XI_DIM = len(XI_NAMES)
 
@@ -67,6 +69,15 @@ class VehicleEnvCfg:
     # raw actions are clamped to +-action_clip before the actuators hold them (tanh(3) = 0.995): the
     # pending commands, part of the logged state, stay bounded whatever the policy outputs
     action_clip: float = 3.0
+    # chassis actuators (VEHICLE_PROPOSAL.md §10, C1): actions 2..4 command the rear-wheel angle, a yaw moment from
+    # rear-axle torque vectoring and the front axle's share of the roll stiffness (offset from nominal)
+    chassis: bool = False
+    rear_steer_scale: float = 0.07  # [rad] per unit action (tanh-squashed)
+    rear_steer_tau: float = 0.05
+    yaw_moment_scale: float = 3000.0  # [N m]
+    yaw_moment_tau: float = 0.05
+    roll_split_scale: float = 0.2  # front share of the roll stiffness, offset from nominal
+    roll_split_tau: float = 0.1
     domain_randomization: bool = True
     # set each episode's road friction to the friction its reference was generated under (needs a library
     # with seq_mu); the other context parameters stay randomised (VEHICLE_PROPOSAL.md §4, option 1)
@@ -86,19 +97,30 @@ class VehicleEnvCfg:
     sampler: ResetSamplerCfg = field(default_factory=ResetSamplerCfg)
 
     @property
+    def action_dim(self) -> int:
+        return CHASSIS_ACTION_DIM if self.chassis else ACTION_DIM
+
+    @property
+    def n_actuator_states(self) -> int:
+        """Longitudinal response, plus the chassis actuator states."""
+        return 1 + (N_CHASSIS if self.chassis else 0)
+
+    @property
     def state_dim(self) -> int:
-        """Logged (Markov) state: simulator state, actuator state, pending commands, ABS / ESC flags."""
-        return SIM_STATE_DIM + 1 + self.max_delay * ACTION_DIM + 5
+        """Logged (Markov) state: simulator state, actuator states, pending commands, ABS / ESC flags."""
+        return SIM_STATE_DIM + self.n_actuator_states + self.max_delay * self.action_dim + 5
 
 
-def actuator_update(cfg: VehicleEnvCfg, action, pending, delay, delta, a_act, steer_rate_max: float, steer_max: float):
+def actuator_update(cfg: VehicleEnvCfg, action, pending, delay, delta, a_act, steer_rate_max: float, steer_max: float, chassis=None):
     """One control step of the actuators, shared by the environment and the world model (where it is exact).
 
     Actions are clamped to +-action_clip, then squashed by tanh into the command ranges (+-steer_scale,
     +-accel_scale). ``pending`` (n, d, 2)
     holds the last ``max_delay`` actions, newest first; ``delay`` (n,) selects which one acts now.
     Returns the steering-rate request, the new longitudinal response, the new pending actions and the front
-    wheel angle the dynamics will reach (the steering integrator with CommonRoad's rate and angle limits)."""
+    wheel angle the dynamics will reach (the steering integrator with CommonRoad's rate and angle limits).
+    With ``chassis`` (n, 3) (``cfg.chassis``): also the new chassis actuator states, first-order responses to
+    actions 2..4 (the rear-wheel angle also rate-limited like the front), held over the step by the dynamics."""
     action = action.clamp(-cfg.action_clip, cfg.action_clip)
     hist = torch.cat([action[:, None, :], pending], 1)
     cmd = hist[torch.arange(hist.shape[0], device=hist.device), delay]
@@ -106,7 +128,15 @@ def actuator_update(cfg: VehicleEnvCfg, action, pending, delay, delta, a_act, st
     alpha = 1.0 - math.exp(-cfg.dt / cfg.accel_tau)
     a_new = a_act + alpha * (torch.tanh(cmd[:, 1]) * cfg.accel_scale - a_act)
     delta_next = (delta + cfg.dt * steer_rate.clamp(-steer_rate_max, steer_rate_max)).clamp(-steer_max, steer_max)
-    return steer_rate, a_new, hist[:, : cfg.max_delay], delta_next
+    if chassis is None:
+        return steer_rate, a_new, hist[:, : cfg.max_delay], delta_next
+    sq = torch.tanh(cmd[:, 2:5])
+    dr_target = sq[:, 0] * cfg.rear_steer_scale
+    dr_step = (dr_target - chassis[:, 0]) * (1.0 - math.exp(-cfg.dt / cfg.rear_steer_tau))
+    dr = chassis[:, 0] + dr_step.clamp(-steer_rate_max * cfg.dt, steer_rate_max * cfg.dt)
+    mz = chassis[:, 1] + (1.0 - math.exp(-cfg.dt / cfg.yaw_moment_tau)) * (sq[:, 1] * cfg.yaw_moment_scale - chassis[:, 1])
+    split = chassis[:, 2] + (1.0 - math.exp(-cfg.dt / cfg.roll_split_tau)) * (sq[:, 2] * cfg.roll_split_scale - chassis[:, 2])
+    return steer_rate, a_new, hist[:, : cfg.max_delay], delta_next, torch.stack([dr, mz, split], -1)
 
 
 class Actuators:
@@ -116,21 +146,32 @@ class Actuators:
     def __init__(self, cfg: VehicleEnvCfg, n: int, device, dtype=torch.float32):
         self.cfg = cfg
         self.a_act = torch.zeros(n, device=device, dtype=dtype)
-        self.pending = torch.zeros(n, cfg.max_delay, ACTION_DIM, device=device, dtype=dtype)
+        self.pending = torch.zeros(n, cfg.max_delay, cfg.action_dim, device=device, dtype=dtype)
         self.delay = torch.zeros(n, dtype=torch.long, device=device)
+        self.chassis = torch.zeros(n, N_CHASSIS, device=device, dtype=dtype) if cfg.chassis else None
 
     def reset(self, ids, command: torch.Tensor, a_act: torch.Tensor, delay: torch.Tensor) -> None:
+        """``command``: (m, 2) or (m, action_dim); missing chassis commands are neutral (0)."""
+        if command.shape[-1] < self.cfg.action_dim:
+            command = torch.cat([command, torch.zeros(command.shape[0], self.cfg.action_dim - command.shape[-1], device=command.device, dtype=command.dtype)], -1)
         self.pending[ids] = command[:, None, :]
         self.a_act[ids] = a_act
         self.delay[ids] = delay
+        if self.chassis is not None:
+            self.chassis[ids] = 0.0
 
     def step(self, action: torch.Tensor, delta: torch.Tensor, steer_rate_max: float = math.inf, steer_max: float = math.inf):
-        """-> (steering rate, acceleration request) for the dynamics, held over the control step."""
-        steer_rate, self.a_act, self.pending, _ = actuator_update(self.cfg, action, self.pending, self.delay, delta, self.a_act, steer_rate_max, steer_max)
+        """-> (steering rate, acceleration request) for the dynamics, held over the control step (the chassis
+        actuator states, if any, are in ``self.chassis`` afterwards)."""
+        out = actuator_update(self.cfg, action, self.pending, self.delay, delta, self.a_act, steer_rate_max, steer_max, self.chassis)
+        steer_rate, self.a_act, self.pending = out[0], out[1], out[2]
+        if self.chassis is not None:
+            self.chassis = out[4]
         return steer_rate, self.a_act
 
     def state(self) -> torch.Tensor:
-        return torch.cat([self.a_act[:, None], self.pending.reshape(self.pending.shape[0], -1)], -1)
+        parts = [self.a_act[:, None]] + ([self.chassis] if self.chassis is not None else [])
+        return torch.cat([*parts, self.pending.reshape(self.pending.shape[0], -1)], -1)
 
 
 # ---------------------------------------------------------------------- references
@@ -219,6 +260,10 @@ class ReferenceLibrary:
         """The scripted driver: ``targets(i, t)`` -> (lateral-acceleration target, speed target), each (n,),
         turned into actions through a steady-state understeer approximation (open loop in yaw) and a speed
         P-controller; simulated under the nominal context at road friction ``mu``. -> fields (n, steps, ...)."""
+        if cfg.chassis:  # references are driven by the plain vehicle (chassis actuators neutral)
+            from dataclasses import replace
+
+            cfg = replace(cfg, chassis=False)
         dyn = VehicleDynamics(params, cfg.dt, cfg.substeps, cfg.assist)
         p = dyn.p
         n = v0.shape[0]
@@ -308,7 +353,7 @@ class VehicleTrackingEnv:
         self.dyn = VehicleDynamics(params, cfg.dt, cfg.substeps, cfg.assist)
         self.act = Actuators(cfg, n, device)
         self.sampler = ReturnBasedResetSampler(self.lib.layout, cfg.sampler, n, cfg.episode_steps, device)
-        self.buffer = ReplayBuffer(n, cfg.replay_capacity, cfg.state_dim, ACTION_DIM, XI_DIM, device) if record else None
+        self.buffer = ReplayBuffer(n, cfg.replay_capacity, cfg.state_dim, cfg.action_dim, XI_DIM, device) if record else None
         self.gen = torch.Generator(device=device).manual_seed(seed)
         self.s = torch.zeros(n, SIM_STATE_DIM, device=device)
         self.flags = self.dyn.new_flags(n, device)
@@ -316,7 +361,7 @@ class VehicleTrackingEnv:
         self.xi = torch.zeros(n, XI_DIM, device=device)
         self.frame = torch.zeros(n, dtype=torch.long, device=device)
         self.ep_steps = torch.zeros(n, dtype=torch.long, device=device)
-        self.prev_action = torch.zeros(n, ACTION_DIM, device=device)
+        self.prev_action = torch.zeros(n, cfg.action_dim, device=device)
         self.forced_frame = torch.full((n,), -1, dtype=torch.long, device=device)  # evaluation hook (as the G1 command)
         self.forced_xi: torch.Tensor | None = None  # evaluation hook: fixed context for every reset
         # replay bookkeeping
@@ -334,9 +379,10 @@ class VehicleTrackingEnv:
 
     def observation(self) -> torch.Tensor:
         """Noise-free on-board measurements: speed estimate, IMU (yaw rate, ax, ay), steering angle, wheel
-        speeds [m/s], filtered acceleration and the previous action."""
+        speeds [m/s], filtered acceleration, the chassis actuator states (if any) and the previous action."""
         s = self.s
-        return torch.cat([s[:, VX:VX + 1], s[:, R:R + 1], s[:, AX:AY + 1], s[:, DELTA:DELTA + 1], s[:, W] * self.dyn.p.R_w, self.act.a_act[:, None], self.prev_action], -1)
+        extra = [self.act.chassis] if self.act.chassis is not None else []
+        return torch.cat([s[:, VX:VX + 1], s[:, R:R + 1], s[:, AX:AY + 1], s[:, DELTA:DELTA + 1], s[:, W] * self.dyn.p.R_w, self.act.a_act[:, None], *extra, self.prev_action], -1)
 
     def goal(self) -> torch.Tensor:
         """Reference preview (``preview_goal``) from the current target step and pose."""
@@ -411,9 +457,12 @@ class VehicleTrackingEnv:
         """-> obs, reward, terminated, truncated (time-out or end of the reference), info."""
         cfg, lib = self.cfg, self.lib
         a_exec = action if action_noise is None else action + action_noise
-        steer_rate, accel = self.act.step(a_exec, self.s[:, DELTA])
+        steer_rate, accel = self.act.step(a_exec, self.s[:, DELTA], self.dyn.p.steer_rate_max, self.dyn.p.steer_max)
         s_before = self.s
-        self.s, self.flags = self.dyn.step(self.s, self.flags, steer_rate, accel, self.ctx)
+        if self.act.chassis is None:
+            self.s, self.flags = self.dyn.step(self.s, self.flags, steer_rate, accel, self.ctx)
+        else:
+            self.s, self.flags = self.dyn.step(self.s, self.flags, steer_rate, accel, self.ctx, self.act.chassis)
         # the dynamics leave their validity range (wheel lift-off, roll past ~1 rad) only from states far
         # beyond any termination; should one get there, end the episode on the last finite state
         broken = ~torch.isfinite(self.s).all(-1)
@@ -440,7 +489,7 @@ class VehicleTrackingEnv:
         if done_ids.numel():
             if self.buffer is not None:  # terminal row: the state the last action reached, with its label
                 st = self.state()[done_ids]
-                z = torch.zeros(done_ids.numel(), ACTION_DIM, device=self.device)
+                z = torch.zeros(done_ids.numel(), cfg.action_dim, device=self.device)
                 self.buffer.add(done_ids, s=st, a=z, a_exec=z, xi=self._prev_xi[done_ids], r=torch.zeros(done_ids.numel(), device=self.device),
                                 done=term[done_ids].float(), frame=self.frame[done_ids], clip=lib.layout.step_seq[self.frame[done_ids]],
                                 terminal=torch.ones(done_ids.numel(), dtype=torch.bool, device=self.device), ep_start=torch.zeros(done_ids.numel(), dtype=torch.bool, device=self.device))

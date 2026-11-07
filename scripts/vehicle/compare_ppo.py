@@ -56,7 +56,8 @@ from supermimic.world_model.wm_trainer import WMTrainerCfg, WorldModelTrainer
 from supermimic.world_model.world_model import WorldModel, WorldModelCfg
 
 METHODS = ("supermimic", "ppo", "nmpc", "nmpc_onboard")
-COLORS = {"supermimic": "#1f77b4", "ppo": "#d62728", "nmpc": "#2ca02c", "nmpc_onboard": "#9467bd"}
+COLORS = {"supermimic": "#1f77b4", "ppo": "#d62728", "nmpc": "#2ca02c", "nmpc_onboard": "#9467bd",
+          "supermimic_chassis": "#17becf", "ppo_chassis": "#ff7f0e"}
 
 
 def parse(argv=None):
@@ -108,6 +109,8 @@ def parse(argv=None):
                     "(edge of the training ranges; NMPC's model keeps the nominal values)")
     ap.add_argument("--policies-from", default=None, help="policies.pt of an earlier run: evaluate its supermimic / ppo policies "
                     "(under the evaluation conditions above) instead of training them")
+    ap.add_argument("--chassis", action="store_true", help="5-D action: add rear-wheel steering, torque-vectoring yaw moment and the "
+                    "roll-stiffness split (VEHICLE_PROPOSAL.md §10); NMPC keeps them neutral")
     ap.add_argument("--out-dir", default="logs/compare")
     ap.add_argument("--no-plots", action="store_true")
     add_threads_arg(ap)
