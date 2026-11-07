@@ -111,6 +111,8 @@ def parse(argv=None):
                     "(under the evaluation conditions above) instead of training them")
     ap.add_argument("--chassis", action="store_true", help="5-D action: add rear-wheel steering, torque-vectoring yaw moment and the "
                     "roll-stiffness split (VEHICLE_PROPOSAL.md §10); NMPC keeps them neutral")
+    ap.add_argument("--chassis-usage-weight", type=float, default=-0.2, help="reward weight of the chassis actuators' usage cost "
+                    "(squared squashed commands); 0 switches it off")
     ap.add_argument("--out-dir", default="logs/compare")
     ap.add_argument("--no-plots", action="store_true")
     add_threads_arg(ap)

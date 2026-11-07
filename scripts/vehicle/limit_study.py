@@ -74,7 +74,10 @@ def parse(argv=None):
 
 
 def env_cfg(args, n, capacity, train=True) -> VehicleEnvCfg:
-    return VehicleEnvCfg(num_envs=n, episode_steps=args.episode_steps if train else 10_000, replay_capacity=capacity,
+    from supermimic.vehicles.tracking import TrackingCfg
+
+    w = getattr(args, "chassis_usage_weight", None)
+    return VehicleEnvCfg(tracking=TrackingCfg() if w is None else TrackingCfg(w_chassis_usage=w), num_envs=n, episode_steps=args.episode_steps if train else 10_000, replay_capacity=capacity,
                          domain_randomization=train, reset_noise=train, match_friction=True, assist=AssistCfg(abs=False, esc=False),
                          chassis=getattr(args, "chassis", False))
 

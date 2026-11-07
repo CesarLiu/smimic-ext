@@ -43,6 +43,9 @@ class TrackingCfg:
     # pulls a policy's raw outputs back and they drift without limit (limit study, VEHICLE_PROPOSAL.md §3.10)
     w_action_bound: float = -1.0
     action_bound: float = 2.5
+    # chassis actuators (actions beyond the first two, VEHICLE_PROPOSAL.md §10): a usage cost on their squashed
+    # commands (energy / wear); without it SuperMimic drives them into ranges its world model predicts badly (§10.5)
+    w_chassis_usage: float = -0.2
     dt: float = 0.02
     # terminations (relative to the reference)
     lat_max: float = 2.0
@@ -56,7 +59,7 @@ class TrackingCfg:
         return (self.w_lat + self.w_lon + self.w_yaw + self.w_v + self.w_beta) * self.dt
 
 
-TERM_NAMES = ("lateral", "longitudinal", "heading", "speed", "sideslip", "action_rate", "action_bound")
+TERM_NAMES = ("lateral", "longitudinal", "heading", "speed", "sideslip", "action_rate", "action_bound", "chassis_usage")
 
 
 def wrap(a: torch.Tensor) -> torch.Tensor:
@@ -91,6 +94,8 @@ def reward_terms(s_next: torch.Tensor, action: torch.Tensor, prev_action: torch.
         # on the squashed commands the actuators see (env.actuator_update), so the penalty stays bounded
         "action_rate": cfg.w_action_rate * ((torch.tanh(action) - torch.tanh(prev_action)) ** 2).sum(-1),
         "action_bound": cfg.w_action_bound * ((action.abs() - cfg.action_bound).clamp_min(0.0) ** 2).sum(-1),
+        # zero for the plain 2-D action
+        "chassis_usage": cfg.w_chassis_usage * (torch.tanh(action[..., 2:]) ** 2).sum(-1),
     }
     t = {name: v * cfg.dt for name, v in t.items()}
     t["total"] = sum(t[n] for n in TERM_NAMES)
