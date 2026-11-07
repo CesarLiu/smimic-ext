@@ -18,6 +18,7 @@
 | 第 2 步 | 策略在附着极限附近学跟踪，大小世界模型对比（无关卡，只测量） | ✅ 已测两次（两台机器）：三档摩擦都学会（回报约 0.1 → 0.38–0.76）；大模型在 12 个对比项里 11 项更好、1 项持平，但单次运行的数字波动很大，需要多种子；终止率仍有 33–50% | §3.10，`docs/results/vehicle_limit_study.json` |
 | E6（部分） | S 弯 demo：SuperMimic 对比 PPO（同一训练库，S 弯为未见过的测试） | ✅ CPU 上跑过一次（各 8 分钟，单种子）：相同数据量下 SuperMimic 样本效率高约 3–4 倍；相同时间下 PPO 更好（0.96 对 0.81）；两者都跑完 S 弯。待 H200、多种子。NMPC 基线已实现，只用策略拿到的车载信息时：各项回报 0.99、横向误差 0.01–0.03 m，噪声、延迟、参数失配下无终止；每步求解约 9 ms，策略约 0.1 ms。这个设定下 NMPC 明显优于两个学习方法 | §3.11、§3.12，第 7 步，`docs/results/vehicle_compare_ppo_cpu*`、`vehicle_nmpc*` |
 | demo | 麋鹿测试（ISO 3888-2 避障变道，按锥桶接触评分） | ✅ CPU 上跑过（赛道尺寸已按二手资料更正，第一版结果作废）：车载信息版 NMPC 通过到干路 60、湿滑路 45 km/h（参考线的上限）；两个策略在所有速度都碰到 1–5 个桶 | §3.13，第 8 步，`docs/results/vehicle_elk*` |
+| C1 | 集成底盘（5 维动作：加后轮转向、扭矩矢量、主动防倾分配） | ⚠️ 实现并测试完毕；第一次结果：PPO 学得一样快且更准，SuperMimic 在同样预算下明显变差（世界模型被利用），关卡未通过，下一步见 §10.5 | §10，第 9 步，`docs/results/vehicle_chassis*` |
 
 ## 环境
 
@@ -423,7 +424,23 @@ env -u PYTHONPATH uv run python scripts/vehicle/elk_test.py --policies logs/comp
 - 参考线：在 0.85 μg 内留出最大间隙（上限 0.10 m）的线，由特权 NMPC 开出。NMPC 自己都过不去的速度会被跳过（目前干路 > 60、湿滑路 > 45 km/h）。生成参考线要 casadi，结果追加进 `--refs-cache`；只评估已有速度不需要；
 - 结果（CPU，§3.13）：车载信息版 NMPC 通过所有测试点；PPO 和 SuperMimic 在所有速度都碰桶（PPO 1–3 个，SuperMimic 2–5 个）。带噪声和失配时结果在低速会翻转（擦边接触），单次运行不足以下结论。示例视频 [`docs/results/vehicle_elk.mp4`](results/vehicle_elk.mp4)（干路 45、60 km/h，湿滑路 40 km/h）。
 
-### 9. 下一步（E3/E4）
+### 9. 集成底盘 demo（VEHICLE_PROPOSAL.md §10，C1；CPU 约 1.5 小时）
+
+- [ ] 用 5 维动作（前轮转角、加速度、后轮转角、横摆力矩、前后防倾分配）训练 SuperMimic 和 PPO，与 2 维对比
+
+```bash
+# 两种变体都训练（各约 40 分钟，CPU），然后对比留出弯道、S 弯、麋鹿测试，并渲染两个视频
+env -u PYTHONPATH uv run python scripts/vehicle/chassis_demo.py --out-dir logs/chassis_demo
+# 已有训练好的运行时直接复用：
+env -u PYTHONPATH uv run python scripts/vehicle/chassis_demo.py --plain-from logs/compare/seed0 --chassis-from logs/compare_chassis/seed0 --out-dir logs/chassis_demo
+# 只训练 5 维：compare_ppo.py 加 --chassis（底盘使用代价 --chassis-usage-weight，默认 -0.2）
+```
+
+- 输出 `summary.json`（训练结果、达到目标回报的仿真步数、麋鹿测试碰桶数）、终端表格，以及 `chassis_scurve.mp4`、`chassis_elk.mp4`（四个策略同场，后轮转角在画面里可见）；
+- 结果（CPU，§10.5）：PPO 在 5 维下学得一样快，S 弯更准（μ=1.0 横向误差 0.16 → 0.09 m）；SuperMimic 在同样预算下从 0.80 掉到 0.43。不加使用代价时它会完全崩掉（0.07），原因是策略利用世界模型对新执行器的误差。下一步是世界模型集成和不确定性惩罚、底盘维度的激励、更长训练，见 §10.5；
+- 视频：[`docs/results/vehicle_chassis_scurve.mp4`](results/vehicle_chassis_scurve.mp4)、[`docs/results/vehicle_chassis_elk.mp4`](results/vehicle_chassis_elk.mp4)。
+
+### 10. 下一步（E3/E4）
 
 - [x] E1 的关卡按 §3.9 修订（2026-11-04）
 - [x] 第 2 步：策略能否在附着极限附近学好（§3.10）。能；大世界模型明显更好，此后默认用大模型

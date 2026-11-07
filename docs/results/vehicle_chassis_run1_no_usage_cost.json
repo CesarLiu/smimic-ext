@@ -1,0 +1,126 @@
+{
+ "note": "first 5-D run, no chassis usage cost (w_chassis_usage = 0 in effect); same budget as the 2-D run",
+ "methods": {
+  "supermimic": {
+   "heldout_final": {
+    "mu_0.5": 0.06785035878419876,
+    "mu_0.8": 0.12363442778587341,
+    "mu_1.0": 0.06553421169519424
+   },
+   "scurve_final": {
+    "mu_0.5": {
+     "return": 0.06675629317760468,
+     "terminated": true
+    },
+    "mu_0.8": {
+     "return": 0.07464376837015152,
+     "terminated": true
+    },
+    "mu_1.0": {
+     "return": 0.18750818073749542,
+     "terminated": true
+    }
+   },
+   "curve": [
+    {
+     "env_steps": 0,
+     "heldout_return": 0.091,
+     "scurve_return": 0.1902
+    },
+    {
+     "env_steps": 102400,
+     "heldout_return": 0.0728,
+     "scurve_return": 0.1063
+    },
+    {
+     "env_steps": 168960,
+     "heldout_return": 0.2805,
+     "scurve_return": 0.404
+    },
+    {
+     "env_steps": 204800,
+     "heldout_return": 0.0541,
+     "scurve_return": 0.0676
+    },
+    {
+     "env_steps": 501760,
+     "heldout_return": 0.1121,
+     "scurve_return": 0.1342
+    },
+    {
+     "env_steps": 691200,
+     "heldout_return": 0.0857,
+     "scurve_return": 0.1096
+    }
+   ]
+  },
+  "ppo": {
+   "heldout_final": {
+    "mu_0.5": 0.9446517825126648,
+    "mu_0.8": 0.9317180514335632,
+    "mu_1.0": 0.929136335849762
+   },
+   "scurve_final": {
+    "mu_0.5": {
+     "return": 0.9561640620231628,
+     "terminated": false
+    },
+    "mu_0.8": {
+     "return": 0.9297740459442139,
+     "terminated": false
+    },
+    "mu_1.0": {
+     "return": 0.8886758089065552,
+     "terminated": false
+    }
+   },
+   "curve": [
+    {
+     "env_steps": 0,
+     "heldout_return": 0.0961,
+     "scurve_return": 0.2626
+    },
+    {
+     "env_steps": 131072,
+     "heldout_return": 0.1019,
+     "scurve_return": 0.2555
+    },
+    {
+     "env_steps": 229376,
+     "heldout_return": 0.3391,
+     "scurve_return": 0.4582
+    },
+    {
+     "env_steps": 524288,
+     "heldout_return": 0.3774,
+     "scurve_return": 0.5281
+    },
+    {
+     "env_steps": 1015808,
+     "heldout_return": 0.566,
+     "scurve_return": 0.7879
+    },
+    {
+     "env_steps": 2031616,
+     "heldout_return": 0.8088,
+     "scurve_return": 0.8625
+    },
+    {
+     "env_steps": 5013504,
+     "heldout_return": 0.9226,
+     "scurve_return": 0.9138
+    },
+    {
+     "env_steps": 10027008,
+     "heldout_return": 0.9202,
+     "scurve_return": 0.9143
+    },
+    {
+     "env_steps": 13369344,
+     "heldout_return": 0.9352,
+     "scurve_return": 0.9249
+    }
+   ]
+  }
+ }
+}
