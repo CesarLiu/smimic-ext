@@ -1,0 +1,254 @@
+{
+ "note": "SuperMimic, 5-D chassis action, 2700 iterations each, seed 0, CPU; usage cost -0.2 in all",
+ "runs": {
+  "usage_cost_only": {
+   "description": "usage cost only",
+   "args": {
+    "wm_ensemble": null,
+    "unc_penalty": null,
+    "chassis_explore": null,
+    "chassis_usage_weight": -0.2
+   },
+   "heldout_final": {
+    "mu_0.5": 0.5528405904769897,
+    "mu_0.8": 0.3445194959640503,
+    "mu_1.0": 0.3945039212703705
+   },
+   "scurve_final": {
+    "mu_0.5": {
+     "return": 0.6994280815124512,
+     "terminated": false
+    },
+    "mu_0.8": {
+     "return": 0.603927493095398,
+     "terminated": false
+    },
+    "mu_1.0": {
+     "return": 0.38012781739234924,
+     "terminated": true
+    }
+   },
+   "curve": [
+    {
+     "env_steps": 0,
+     "heldout_return": 0.0906,
+     "scurve_return": 0.1896
+    },
+    {
+     "env_steps": 102400,
+     "heldout_return": 0.0738,
+     "scurve_return": 0.1224
+    },
+    {
+     "env_steps": 204800,
+     "heldout_return": 0.1059,
+     "scurve_return": 0.1378
+    },
+    {
+     "env_steps": 501760,
+     "heldout_return": 0.3564,
+     "scurve_return": 0.7693
+    },
+    {
+     "env_steps": 691200,
+     "heldout_return": 0.4306,
+     "scurve_return": 0.5612
+    }
+   ],
+   "train_s": 593.2
+  },
+  "explore": {
+   "description": "+ chassis exploration noise (OU, std 0.5)",
+   "args": {
+    "wm_ensemble": 1,
+    "unc_penalty": 0.0,
+    "chassis_explore": 0.5,
+    "chassis_usage_weight": -0.2
+   },
+   "heldout_final": {
+    "mu_0.5": 0.6278534531593323,
+    "mu_0.8": 0.5223343372344971,
+    "mu_1.0": 0.6171166896820068
+   },
+   "scurve_final": {
+    "mu_0.5": {
+     "return": 0.7535837888717651,
+     "terminated": false
+    },
+    "mu_0.8": {
+     "return": 0.6716033816337585,
+     "terminated": false
+    },
+    "mu_1.0": {
+     "return": 0.35460740327835083,
+     "terminated": true
+    }
+   },
+   "curve": [
+    {
+     "env_steps": 0,
+     "heldout_return": 0.0906,
+     "scurve_return": 0.1896
+    },
+    {
+     "env_steps": 102400,
+     "heldout_return": 0.0597,
+     "scurve_return": 0.0856
+    },
+    {
+     "env_steps": 204800,
+     "heldout_return": 0.1828,
+     "scurve_return": 0.265
+    },
+    {
+     "env_steps": 501760,
+     "heldout_return": 0.4876,
+     "scurve_return": 0.5811
+    },
+    {
+     "env_steps": 542720,
+     "heldout_return": 0.5494,
+     "scurve_return": 0.3836
+    },
+    {
+     "env_steps": 691200,
+     "heldout_return": 0.5891,
+     "scurve_return": 0.5933
+    }
+   ],
+   "train_s": 778.8
+  },
+  "ensemble_penalty": {
+   "description": "+ 3-member world-model ensemble, uncertainty penalty 10",
+   "args": {
+    "wm_ensemble": 3,
+    "unc_penalty": 10.0,
+    "chassis_explore": 0.0,
+    "chassis_usage_weight": -0.2
+   },
+   "heldout_final": {
+    "mu_0.5": 0.655315637588501,
+    "mu_0.8": 0.5694795250892639,
+    "mu_1.0": 0.5993110537528992
+   },
+   "scurve_final": {
+    "mu_0.5": {
+     "return": 0.8473199009895325,
+     "terminated": false
+    },
+    "mu_0.8": {
+     "return": 0.7794140577316284,
+     "terminated": false
+    },
+    "mu_1.0": {
+     "return": 0.6926460862159729,
+     "terminated": false
+    }
+   },
+   "curve": [
+    {
+     "env_steps": 0,
+     "heldout_return": 0.0906,
+     "scurve_return": 0.1896
+    },
+    {
+     "env_steps": 102400,
+     "heldout_return": 0.0656,
+     "scurve_return": 0.0737
+    },
+    {
+     "env_steps": 204800,
+     "heldout_return": 0.268,
+     "scurve_return": 0.4666
+    },
+    {
+     "env_steps": 296960,
+     "heldout_return": 0.3268,
+     "scurve_return": 0.4355
+    },
+    {
+     "env_steps": 501760,
+     "heldout_return": 0.3459,
+     "scurve_return": 0.5206
+    },
+    {
+     "env_steps": 537600,
+     "heldout_return": 0.5552,
+     "scurve_return": 0.4293
+    },
+    {
+     "env_steps": 691200,
+     "heldout_return": 0.608,
+     "scurve_return": 0.7731
+    }
+   ],
+   "train_s": 1593.2
+  },
+  "both": {
+   "description": "+ both",
+   "args": {
+    "wm_ensemble": 3,
+    "unc_penalty": 10.0,
+    "chassis_explore": 0.5,
+    "chassis_usage_weight": -0.2
+   },
+   "heldout_final": {
+    "mu_0.5": 0.7486967444419861,
+    "mu_0.8": 0.6848270893096924,
+    "mu_1.0": 0.6846106648445129
+   },
+   "scurve_final": {
+    "mu_0.5": {
+     "return": 0.7967433333396912,
+     "terminated": false
+    },
+    "mu_0.8": {
+     "return": 0.7362558841705322,
+     "terminated": false
+    },
+    "mu_1.0": {
+     "return": 0.6771040558815002,
+     "terminated": false
+    }
+   },
+   "curve": [
+    {
+     "env_steps": 0,
+     "heldout_return": 0.0906,
+     "scurve_return": 0.1896
+    },
+    {
+     "env_steps": 102400,
+     "heldout_return": 0.0616,
+     "scurve_return": 0.0736
+    },
+    {
+     "env_steps": 204800,
+     "heldout_return": 0.2512,
+     "scurve_return": 0.2704
+    },
+    {
+     "env_steps": 307200,
+     "heldout_return": 0.3382,
+     "scurve_return": 0.3544
+    },
+    {
+     "env_steps": 501760,
+     "heldout_return": 0.6983,
+     "scurve_return": 0.7619
+    },
+    {
+     "env_steps": 568320,
+     "heldout_return": 0.751,
+     "scurve_return": 0.7655
+    },
+    {
+     "env_steps": 691200,
+     "heldout_return": 0.706,
+     "scurve_return": 0.7367
+    }
+   ],
+   "train_s": 1476.7
+  }
+ }
+}

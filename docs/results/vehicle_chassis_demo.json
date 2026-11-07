@@ -1,7 +1,7 @@
 {
  "args": {
   "plain_from": "/tmp/claude-0/-home-user-smimic-ext/7f56e299-37ce-5f31-9c7b-e40d08a3dcf1/scratchpad/cmp_iters",
-  "chassis_from": "/tmp/claude-0/-home-user-smimic-ext/7f56e299-37ce-5f31-9c7b-e40d08a3dcf1/scratchpad/cmp_chassis2",
+  "chassis_from": "/tmp/claude-0/-home-user-smimic-ext/7f56e299-37ce-5f31-9c7b-e40d08a3dcf1/scratchpad/chassis_best",
   "sm_max_iters": 2700,
   "ppo_max_updates": 408,
   "ppo_envs": 1024,
@@ -21,7 +21,7 @@
   "no_video": false,
   "fps": 25,
   "dpi": 100,
-  "out_dir": "/tmp/claude-0/-home-user-smimic-ext/7f56e299-37ce-5f31-9c7b-e40d08a3dcf1/scratchpad/chassis_demo",
+  "out_dir": "/tmp/claude-0/-home-user-smimic-ext/7f56e299-37ce-5f31-9c7b-e40d08a3dcf1/scratchpad/chassis_demo2",
   "device": "cpu",
   "threads": null
  },
@@ -83,29 +83,29 @@
   "chassis": {
    "supermimic": {
     "heldout_return": {
-     "mu_0.5": 0.5528405904769897,
-     "mu_0.8": 0.3445194959640503,
-     "mu_1.0": 0.3945039212703705
+     "mu_0.5": 0.7486967444419861,
+     "mu_0.8": 0.6848270893096924,
+     "mu_1.0": 0.6846106648445129
     },
-    "heldout_mean": 0.4306213359038035,
+    "heldout_mean": 0.7060448328653971,
     "scurve_return": {
-     "mu_0.5": 0.6994280815124512,
-     "mu_0.8": 0.603927493095398,
-     "mu_1.0": 0.38012781739234924
+     "mu_0.5": 0.7967433333396912,
+     "mu_0.8": 0.7362558841705322,
+     "mu_1.0": 0.6771040558815002
     },
-    "scurve_mean": 0.5611611306667328,
+    "scurve_mean": 0.7367010911305746,
     "scurve_completed": {
      "mu_0.5": true,
      "mu_0.8": true,
-     "mu_1.0": false
+     "mu_1.0": true
     },
     "scurve_mean_abs_lat_m": {
-     "mu_0.5": 0.5136366959505,
-     "mu_0.8": 1.0016657692107138,
-     "mu_1.0": 0.7027018540883093
+     "mu_0.5": 0.4095746979089115,
+     "mu_0.8": 0.489675747034742,
+     "mu_1.0": 0.6509735838903298
     },
     "env_steps": 691200,
-    "steps_to_heldout_0.7": null
+    "steps_to_heldout_0.7": 568320
    },
    "ppo": {
     "heldout_return": {
@@ -161,9 +161,9 @@
    "supermimic_chassis": {
     "passed": false,
     "completed": true,
-    "cones_hit": 2,
-    "overhang_steps": 15,
-    "max_lateral_error_m": 0.5890854597091675
+    "cones_hit": 7,
+    "overhang_steps": 107,
+    "max_lateral_error_m": 0.5142601728439331
    },
    "ppo_chassis": {
     "passed": false,
@@ -198,9 +198,9 @@
    "supermimic_chassis": {
     "passed": false,
     "completed": true,
-    "cones_hit": 6,
-    "overhang_steps": 73,
-    "max_lateral_error_m": 0.9753099679946899
+    "cones_hit": 9,
+    "overhang_steps": 119,
+    "max_lateral_error_m": 0.7429941892623901
    },
    "ppo_chassis": {
     "passed": false,
@@ -235,9 +235,9 @@
    "supermimic_chassis": {
     "passed": false,
     "completed": true,
-    "cones_hit": 12,
-    "overhang_steps": 116,
-    "max_lateral_error_m": 1.8409199714660645
+    "cones_hit": 13,
+    "overhang_steps": 115,
+    "max_lateral_error_m": 1.057375431060791
    },
    "ppo_chassis": {
     "passed": false,
@@ -272,9 +272,9 @@
    "supermimic_chassis": {
     "passed": false,
     "completed": true,
-    "cones_hit": 12,
-    "overhang_steps": 224,
-    "max_lateral_error_m": 1.2418220043182373
+    "cones_hit": 6,
+    "overhang_steps": 89,
+    "max_lateral_error_m": 0.38811537623405457
    },
    "ppo_chassis": {
     "passed": false,
@@ -309,9 +309,9 @@
    "supermimic_chassis": {
     "passed": false,
     "completed": true,
-    "cones_hit": 2,
-    "overhang_steps": 15,
-    "max_lateral_error_m": 0.5699383020401001
+    "cones_hit": 7,
+    "overhang_steps": 107,
+    "max_lateral_error_m": 0.5281797647476196
    },
    "ppo_chassis": {
     "passed": false,
