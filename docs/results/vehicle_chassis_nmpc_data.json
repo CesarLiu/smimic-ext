@@ -1,0 +1,289 @@
+{
+ "note": "NMPC demonstration data for the 5-D SuperMimic (VEHICLE_PROPOSAL.md section 10.7). Both runs use the world-model ensemble (3), uncertainty penalty (10) and chassis exploration (0.5) of the 'both' run in vehicle_chassis_ablation.json; 2700 iterations, seed 0, CPU. NMPC data: privileged NMPC on the training library, 32 envs x 3000 steps (97293 rows, 1909 s to collect), white noise 0.15 on steering/acceleration, OU excitation 0.5 on the chassis actions; world model pretrained 200 updates on it. env_steps excludes the NMPC rows.",
+ "runs": {
+  "pretrain_and_mix": {
+   "description": "pretrain on NMPC data, then 30% of every world-model and imagination batch from it",
+   "args": {
+    "wm_ensemble": 3,
+    "unc_penalty": 10.0,
+    "chassis_explore": 0.5,
+    "chassis_usage_weight": -0.2,
+    "nmpc_data_steps": 3000,
+    "nmpc_data_envs": 32,
+    "nmpc_data_noise": 0.15,
+    "nmpc_data_chassis": 0.5,
+    "nmpc_data_frac": 0.3,
+    "nmpc_pretrain": 200
+   },
+   "nmpc_data_rows": 97293,
+   "train_s": 1629.4,
+   "heldout_final": {
+    "mu_0.5": {
+     "normalized_return": 0.3928457498550415,
+     "termination_rate": 0.5,
+     "mean_abs_lateral_error_m": 0.6443212032318115,
+     "mean_steps": 332.0,
+     "near_limit_steps": 303,
+     "near_limit_survived_share": 0.3465346395969391,
+     "near_limit_mean_abs_lat": 0.938011884689331,
+     "near_limit_mean_abs_yaw": 0.05522309988737106,
+     "near_limit_mean_abs_beta": 0.008481974713504314
+    },
+    "mu_0.8": {
+     "normalized_return": 0.33730006217956543,
+     "termination_rate": 1.0,
+     "mean_abs_lateral_error_m": 0.6051077842712402,
+     "mean_steps": 285.1666564941406,
+     "near_limit_steps": 507,
+     "near_limit_survived_share": 0.4043392539024353,
+     "near_limit_mean_abs_lat": 0.6631401181221008,
+     "near_limit_mean_abs_yaw": 0.05908698961138725,
+     "near_limit_mean_abs_beta": 0.016190864145755768
+    },
+    "mu_1.0": {
+     "normalized_return": 0.32165077328681946,
+     "termination_rate": 0.6666666865348816,
+     "mean_abs_lateral_error_m": 0.6024420857429504,
+     "mean_steps": 265.6666564941406,
+     "near_limit_steps": 232,
+     "near_limit_survived_share": 0.11637931317090988,
+     "near_limit_mean_abs_lat": 0.44903451204299927,
+     "near_limit_mean_abs_yaw": 0.09958717226982117,
+     "near_limit_mean_abs_beta": 0.012246215716004372
+    }
+   },
+   "scurve_final": {
+    "mu_0.5": {
+     "normalized_return": 0.6330443620681763,
+     "termination_rate": 0.0,
+     "mean_abs_lateral_error_m": 0.797712504863739,
+     "mean_steps": 389.0,
+     "near_limit_steps": 158,
+     "near_limit_survived_share": 1.0,
+     "near_limit_mean_abs_lat": 0.926566481590271,
+     "near_limit_mean_abs_yaw": 0.036646053194999695,
+     "near_limit_mean_abs_beta": 0.01991880312561989
+    },
+    "mu_0.8": {
+     "normalized_return": 0.5774306654930115,
+     "termination_rate": 0.0,
+     "mean_abs_lateral_error_m": 0.911738395690918,
+     "mean_steps": 389.0,
+     "near_limit_steps": 154,
+     "near_limit_survived_share": 1.0,
+     "near_limit_mean_abs_lat": 1.0250194072723389,
+     "near_limit_mean_abs_yaw": 0.06188642978668213,
+     "near_limit_mean_abs_beta": 0.023863833397626877
+    },
+    "mu_1.0": {
+     "normalized_return": 0.4263668358325958,
+     "termination_rate": 1.0,
+     "mean_abs_lateral_error_m": 0.8449925184249878,
+     "mean_steps": 313.0,
+     "near_limit_steps": 155,
+     "near_limit_survived_share": 1.0,
+     "near_limit_mean_abs_lat": 1.0349949598312378,
+     "near_limit_mean_abs_yaw": 0.0842839926481247,
+     "near_limit_mean_abs_beta": 0.02635766938328743
+    }
+   },
+   "curve": [
+    {
+     "env_steps": 0,
+     "heldout_return": 0.0906,
+     "scurve_return": 0.1896
+    },
+    {
+     "env_steps": 102400,
+     "heldout_return": 0.0854,
+     "scurve_return": 0.0925
+    },
+    {
+     "env_steps": 204800,
+     "heldout_return": 0.1218,
+     "scurve_return": 0.1501
+    },
+    {
+     "env_steps": 291840,
+     "heldout_return": 0.3518,
+     "scurve_return": 0.6241
+    },
+    {
+     "env_steps": 501760,
+     "heldout_return": 0.6198,
+     "scurve_return": 0.6207
+    },
+    {
+     "env_steps": 527360,
+     "heldout_return": 0.6391,
+     "scurve_return": 0.535
+    },
+    {
+     "env_steps": 691200,
+     "heldout_return": 0.3506,
+     "scurve_return": 0.5456
+    }
+   ],
+   "chassis_usage_scurve_mu1": {
+    "mean_abs_tanh_action": [
+     0.34,
+     0.08,
+     0.3,
+     0.19,
+     0.1
+    ],
+    "terminated_at_step": 313
+   }
+  },
+  "pretrain_only": {
+   "description": "pretrain on NMPC data only (no mixing)",
+   "args": {
+    "wm_ensemble": 3,
+    "unc_penalty": 10.0,
+    "chassis_explore": 0.5,
+    "chassis_usage_weight": -0.2,
+    "nmpc_data_steps": 3000,
+    "nmpc_data_envs": 32,
+    "nmpc_data_noise": 0.15,
+    "nmpc_data_chassis": 0.5,
+    "nmpc_data_frac": 0.0,
+    "nmpc_pretrain": 200
+   },
+   "nmpc_data_rows": 97293,
+   "train_s": 1669.3,
+   "heldout_final": {
+    "mu_0.5": {
+     "normalized_return": 0.7913336157798767,
+     "termination_rate": 0.0,
+     "mean_abs_lateral_error_m": 0.18702757358551025,
+     "mean_steps": 499.0,
+     "near_limit_steps": 303,
+     "near_limit_survived_share": 1.0,
+     "near_limit_mean_abs_lat": 0.2817924916744232,
+     "near_limit_mean_abs_yaw": 0.039228405803442,
+     "near_limit_mean_abs_beta": 0.017424385994672775
+    },
+    "mu_0.8": {
+     "normalized_return": 0.745465099811554,
+     "termination_rate": 0.0,
+     "mean_abs_lateral_error_m": 0.31658855080604553,
+     "mean_steps": 499.0,
+     "near_limit_steps": 507,
+     "near_limit_survived_share": 0.9980276226997375,
+     "near_limit_mean_abs_lat": 0.28125813603401184,
+     "near_limit_mean_abs_yaw": 0.036200735718011856,
+     "near_limit_mean_abs_beta": 0.02122812718153
+    },
+    "mu_1.0": {
+     "normalized_return": 0.7775223255157471,
+     "termination_rate": 0.0,
+     "mean_abs_lateral_error_m": 0.2874509394168854,
+     "mean_steps": 499.0,
+     "near_limit_steps": 232,
+     "near_limit_survived_share": 0.9956896305084229,
+     "near_limit_mean_abs_lat": 0.3639552891254425,
+     "near_limit_mean_abs_yaw": 0.058789853006601334,
+     "near_limit_mean_abs_beta": 0.031298473477363586
+    }
+   },
+   "scurve_final": {
+    "mu_0.5": {
+     "normalized_return": 0.8644251227378845,
+     "termination_rate": 0.0,
+     "mean_abs_lateral_error_m": 0.21835356950759888,
+     "mean_steps": 389.0,
+     "near_limit_steps": 158,
+     "near_limit_survived_share": 1.0,
+     "near_limit_mean_abs_lat": 0.231829434633255,
+     "near_limit_mean_abs_yaw": 0.02772442065179348,
+     "near_limit_mean_abs_beta": 0.009670911356806755
+    },
+    "mu_0.8": {
+     "normalized_return": 0.7994440793991089,
+     "termination_rate": 0.0,
+     "mean_abs_lateral_error_m": 0.2747862637042999,
+     "mean_steps": 389.0,
+     "near_limit_steps": 154,
+     "near_limit_survived_share": 1.0,
+     "near_limit_mean_abs_lat": 0.24739298224449158,
+     "near_limit_mean_abs_yaw": 0.04153629392385483,
+     "near_limit_mean_abs_beta": 0.01458536833524704
+    },
+    "mu_1.0": {
+     "normalized_return": 0.7342736721038818,
+     "termination_rate": 0.0,
+     "mean_abs_lateral_error_m": 0.3013356029987335,
+     "mean_steps": 389.0,
+     "near_limit_steps": 155,
+     "near_limit_survived_share": 1.0,
+     "near_limit_mean_abs_lat": 0.33932241797447205,
+     "near_limit_mean_abs_yaw": 0.05687353014945984,
+     "near_limit_mean_abs_beta": 0.03282551094889641
+    }
+   },
+   "curve": [
+    {
+     "env_steps": 0,
+     "heldout_return": 0.0906,
+     "scurve_return": 0.1896
+    },
+    {
+     "env_steps": 102400,
+     "heldout_return": 0.0595,
+     "scurve_return": 0.0691
+    },
+    {
+     "env_steps": 204800,
+     "heldout_return": 0.1223,
+     "scurve_return": 0.1386
+    },
+    {
+     "env_steps": 281600,
+     "heldout_return": 0.2916,
+     "scurve_return": 0.3783
+    },
+    {
+     "env_steps": 501760,
+     "heldout_return": 0.6309,
+     "scurve_return": 0.6855
+    },
+    {
+     "env_steps": 512000,
+     "heldout_return": 0.6974,
+     "scurve_return": 0.6543
+    },
+    {
+     "env_steps": 691200,
+     "heldout_return": 0.7714,
+     "scurve_return": 0.7994
+    }
+   ],
+   "chassis_usage_scurve_mu1": {
+    "mean_abs_tanh_action": [
+     0.25,
+     0.17,
+     0.23,
+     0.24,
+     0.48
+    ],
+    "terminated_at_step": null
+   }
+  }
+ },
+ "reference_chassis_usage_scurve_mu1": {
+  "no_nmpc_data": [
+   0.32,
+   0.15,
+   0.12,
+   0.24,
+   0.8
+  ],
+  "ppo_5d": [
+   0.31,
+   0.09,
+   0.12,
+   0.11,
+   0.2
+  ]
+ }
+}

@@ -102,7 +102,7 @@ def parse(argv=None):
     ap.add_argument("--nmpc-data-envs", type=int, default=32)
     ap.add_argument("--nmpc-data-noise", type=float, default=0.15, help="std of white noise on the NMPC's steering / acceleration actions")
     ap.add_argument("--nmpc-data-chassis", type=float, default=0.5, help="std of the OU excitation of the chassis actions (the NMPC keeps them neutral)")
-    ap.add_argument("--nmpc-data-frac", type=float, default=0.3, help="share of every world-model and imagination batch drawn from the NMPC data")
+    ap.add_argument("--nmpc-data-frac", type=float, default=0.0, help="share of every world-model and imagination batch drawn from the NMPC data (0 = pretraining only; 0.3 hurt, VEHICLE_PROPOSAL.md section 10.7)")
     ap.add_argument("--nmpc-pretrain", type=int, default=200, help="world-model updates on the NMPC data alone before training")
     ap.add_argument("--nmpc-data-cache", default=None, help="load the NMPC data from this file if it exists, else collect and save it there")
     # PPO

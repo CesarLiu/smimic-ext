@@ -18,7 +18,7 @@
 | 第 2 步 | 策略在附着极限附近学跟踪，大小世界模型对比（无关卡，只测量） | ✅ 已测两次（两台机器）：三档摩擦都学会（回报约 0.1 → 0.38–0.76）；大模型在 12 个对比项里 11 项更好、1 项持平，但单次运行的数字波动很大，需要多种子；终止率仍有 33–50% | §3.10，`docs/results/vehicle_limit_study.json` |
 | E6（部分） | S 弯 demo：SuperMimic 对比 PPO（同一训练库，S 弯为未见过的测试） | ✅ CPU 上跑过一次（各 8 分钟，单种子）：相同数据量下 SuperMimic 样本效率高约 3–4 倍；相同时间下 PPO 更好（0.96 对 0.81）；两者都跑完 S 弯。待 H200、多种子。NMPC 基线已实现，只用策略拿到的车载信息时：各项回报 0.99、横向误差 0.01–0.03 m，噪声、延迟、参数失配下无终止；每步求解约 9 ms，策略约 0.1 ms。这个设定下 NMPC 明显优于两个学习方法 | §3.11、§3.12，第 7 步，`docs/results/vehicle_compare_ppo_cpu*`、`vehicle_nmpc*` |
 | demo | 麋鹿测试（ISO 3888-2 避障变道，按锥桶接触评分） | ✅ CPU 上跑过（赛道尺寸已按二手资料更正，第一版结果作废）：车载信息版 NMPC 通过到干路 60、湿滑路 45 km/h（参考线的上限）；两个策略在所有速度都碰到 1–5 个桶 | §3.13，第 8 步，`docs/results/vehicle_elk*` |
-| C1 | 集成底盘（5 维动作：加后轮转向、扭矩矢量、主动防倾分配） | ⚠️ 实现并测试完毕。加世界模型集成、不确定性惩罚和底盘探索激励后，SuperMimic 5 维留出回报 0.43 → 0.71（2 维 0.80），不再崩；但横向精度比 2 维差，麋鹿测试碰桶更多；防倾分配一维仍被利用。关卡未通过 | §10.5、§10.6，第 9 步，`docs/results/vehicle_chassis*` |
+| C1 | 集成底盘（5 维动作：加后轮转向、扭矩矢量、主动防倾分配） | ⚠️ 实现并测试完毕。加世界模型集成、不确定性惩罚和底盘探索激励后，SuperMimic 5 维留出回报 0.43 → 0.71（2 维 0.80），不再崩；再用 NMPC 数据预训练世界模型，到 0.77，横向误差和麋鹿测试碰桶数与 2 维相当（NMPC 数据一直混入批次反而变差，0.35）。样本效率没变好，关卡未通过 | §10.5–§10.7，第 9 步，`docs/results/vehicle_chassis*` |
 
 ## 环境
 
@@ -439,7 +439,9 @@ env -u PYTHONPATH uv run python scripts/vehicle/chassis_demo.py --plain-from log
 - 输出 `summary.json`（训练结果、达到目标回报的仿真步数、麋鹿测试碰桶数）、终端表格，以及 `chassis_scurve.mp4`、`chassis_elk.mp4`（四个策略同场，后轮转角在画面里可见）；
 - 结果（CPU，§10.5）：PPO 在 5 维下学得一样快，S 弯更准（μ=1.0 横向误差 0.16 → 0.09 m）；SuperMimic 在同样预算下从 0.80 掉到 0.43。不加使用代价时它会完全崩掉（0.07），原因是策略利用世界模型对新执行器的误差。下一步是世界模型集成和不确定性惩罚、底盘维度的激励、更长训练，见 §10.5；
 - 改进（§10.6）：世界模型集成加不确定性惩罚、底盘探索激励。在 `compare_ppo.py --chassis` 上加 `--wm-ensemble 3 --unc-penalty 10 --chassis-explore 0.5`，SuperMimic 留出回报 0.43 → 0.71，三条 S 弯都跑完；训练时间约翻倍。`chassis_demo.py` 训练时传 `--train-extra --wm-ensemble 3 --unc-penalty 10 --chassis-explore 0.5`（注意 `--train-extra` 要放在最后，它也作用于 2 维训练，对 2 维无害但会更慢）；
-- 视频：[`docs/results/vehicle_chassis_scurve.mp4`](results/vehicle_chassis_scurve.mp4)、[`docs/results/vehicle_chassis_elk.mp4`](results/vehicle_chassis_elk.mp4)。
+- NMPC 数据预训练（§10.7）：再加 `--nmpc-data-steps 3000 --nmpc-data-envs 32 --nmpc-data-cache logs/nmpc_data_32x3000.pt`。先用特权信息 NMPC 在训练弯道库上采约 10 万条数据（转向、加速加小噪声，底盘动作加 OU 激励；CPU 约 32 分钟，存进缓存，下次直接读），世界模型在上面预训练 200 次（`--nmpc-pretrain`）。结果：留出回报 0.71 → 0.77，S 弯横向误差 0.22–0.30 m，麋鹿测试每档碰 3 个桶，和 2 维相当。`--nmpc-data-frac` 默认 0（只预训练）；设成 0.3（之后每个批次一直混入 30%）在同样设定下最后掉到 0.35；
+- 复现 §10.7 的 demo：先单独训练 SuperMimic 5 维（上面的参数加 `--methods supermimic`），把它的 `policies.pt` 里的 supermimic 和 PPO 5 维运行里的 ppo 合并成一个 `policies.pt`（`args` 用 SuperMimic 那份），再 `chassis_demo.py --plain-from <2 维运行> --chassis-from <合并目录>`；
+- 视频（§10.7 的策略）：[`docs/results/vehicle_chassis_scurve.mp4`](results/vehicle_chassis_scurve.mp4)、[`docs/results/vehicle_chassis_elk.mp4`](results/vehicle_chassis_elk.mp4)。
 
 ### 10. 下一步（E3/E4）
 
