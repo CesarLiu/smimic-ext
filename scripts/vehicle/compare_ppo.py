@@ -97,6 +97,14 @@ def parse(argv=None):
     ap.add_argument("--chassis-explore", type=float, default=0.0, help="SuperMimic data collection: extra slowly varying (Ornstein-"
                     "Uhlenbeck) noise of this std on the chassis actions (2..4), so the world model sees their effects early")
     ap.add_argument("--chassis-explore-tau", type=float, default=0.3, help="correlation time of that noise [s]")
+    # demonstrations from the NMPC (true state) for SuperMimic's world model
+    ap.add_argument("--nmpc-data-steps", type=int, default=0, help="control steps per environment of NMPC-driven data (0 = off)")
+    ap.add_argument("--nmpc-data-envs", type=int, default=32)
+    ap.add_argument("--nmpc-data-noise", type=float, default=0.15, help="std of white noise on the NMPC's steering / acceleration actions")
+    ap.add_argument("--nmpc-data-chassis", type=float, default=0.5, help="std of the OU excitation of the chassis actions (the NMPC keeps them neutral)")
+    ap.add_argument("--nmpc-data-frac", type=float, default=0.3, help="share of every world-model and imagination batch drawn from the NMPC data")
+    ap.add_argument("--nmpc-pretrain", type=int, default=200, help="world-model updates on the NMPC data alone before training")
+    ap.add_argument("--nmpc-data-cache", default=None, help="load the NMPC data from this file if it exists, else collect and save it there")
     # PPO
     ap.add_argument("--ppo-envs", type=int, default=4096)
     ap.add_argument("--ppo-steps", type=int, default=32)
@@ -155,6 +163,42 @@ def make_eval(heads, eval_libs, scurves, args):
     return run
 
 
+def collect_nmpc_data(args, cfg, lib, log):
+    """A replay buffer of NMPC-driven episodes on the training library (same randomisation as training): NMPC with the
+    true state and friction, white noise on its steering / acceleration and OU excitation on the chassis actions."""
+    from dataclasses import replace
+
+    from supermimic.data.replay_buffer import load_buffer, save_buffer
+
+    if args.nmpc_data_cache and Path(args.nmpc_data_cache).exists():
+        buf = load_buffer(args.nmpc_data_cache, args.device)
+        log(f"NMPC data: {buf.size} rows loaded from {args.nmpc_data_cache}")
+        return buf
+    n, steps = args.nmpc_data_envs, args.nmpc_data_steps
+    dcfg = replace(cfg, num_envs=n, replay_capacity=steps + steps // 10 + 10)
+    env = VehicleTrackingEnv(dcfg, lib, device=args.device, seed=args.seed + 7)
+    ctl = NMPC(dcfg, cfg=NMPCCfg(information="privileged"))
+    rho = math.exp(-dcfg.dt / args.chassis_explore_tau)
+    ou = torch.zeros(n, dcfg.action_dim - 2, device=args.device)
+    t0 = time.time()
+    for k in range(steps):
+        a = ctl(env)
+        noise = torch.zeros_like(a)
+        noise[:, :2] = args.nmpc_data_noise * torch.randn(n, 2, device=a.device)
+        if dcfg.action_dim > 2:
+            ou = rho * ou + math.sqrt(1 - rho * rho) * args.nmpc_data_chassis * torch.randn_like(ou)
+            noise[:, 2:] = ou
+        env.step(a, noise)
+        if (k + 1) % 500 == 0:
+            log(f"NMPC data: {k + 1}/{steps} steps x {n} envs, {time.time() - t0:.0f} s")
+    buf = env.buffer
+    if args.nmpc_data_cache:
+        Path(args.nmpc_data_cache).parent.mkdir(parents=True, exist_ok=True)
+        save_buffer(buf, args.nmpc_data_cache)
+    log(f"NMPC data: {buf.size} rows in {time.time() - t0:.0f} s")
+    return buf
+
+
 def train_supermimic(args, lib, run_eval, log) -> tuple[torch.nn.Module, list, dict]:
     torch.manual_seed(args.seed)
     dev = args.device
@@ -173,6 +217,17 @@ def train_supermimic(args, lib, run_eval, log) -> tuple[torch.nn.Module, list, d
     noise_half = heads.obs_noise_half().to(dev)
     curve, train_s, it, next_eval, budget, passed = [], 0.0, 0, 0.0, 60 * args.budget_min, set()
     wm_m, pol_m = {}, {}
+    data, nmpc_rows = env.buffer, 0
+    if args.nmpc_data_steps > 0:
+        from supermimic.data.replay_buffer import MixedReplay
+
+        extra = collect_nmpc_data(args, cfg, lib, log)
+        nmpc_rows = extra.size
+        data = MixedReplay(env.buffer, extra, args.nmpc_data_frac)
+        for _ in range(args.nmpc_pretrain):
+            wm_m = wm_tr.update(extra)
+        if args.nmpc_pretrain:
+            log(f"world model pretrained on the NMPC data: 8-step error {float(wm_m.get('nse_kstep', float('nan'))):.3f}")
     explore = None
     if args.chassis_explore > 0 and cfg.action_dim > 2:  # OU noise on the chassis actions, per environment
         rho = math.exp(-cfg.dt / args.chassis_explore_tau)
@@ -204,13 +259,13 @@ def train_supermimic(args, lib, run_eval, log) -> tuple[torch.nn.Module, list, d
             if info["done"].any():
                 hist.reset(info["done"].nonzero().squeeze(-1), noisy)
             if it >= args.warmup:
-                wm_m = wm_tr.update(env.buffer)
+                wm_m = wm_tr.update(data)
             if it >= args.policy_warmup:
-                pol_m = pol_tr.update(env.buffer)
+                pol_m = pol_tr.update(data)
             it += 1
         _sync(dev)
         train_s += time.time() - t0
-    return policy, curve, {"iterations": it, "env_steps": it * n, "train_s": round(train_s, 1)}
+    return policy, curve, {"iterations": it, "env_steps": it * n, "nmpc_data_rows": nmpc_rows, "train_s": round(train_s, 1)}
 
 
 def train_ppo_method(args, lib, run_eval, log):

@@ -174,3 +174,64 @@ class ReplayBuffer:
             hist_states=hist_states,
             hist_actions=hist_actions,
         )
+
+
+class MixedReplay:
+    """Two buffers sampled together: a share ``frac_windows`` of every world-model batch and ``frac_starts`` of every
+    imagination-start batch comes from ``extra`` (e.g. a fixed set of demonstrations from another controller, kept
+    for the whole run), the rest from ``main`` (the learner's own, recent data). Same sampling interface as
+    ``ReplayBuffer``."""
+
+    def __init__(self, main: ReplayBuffer, extra: ReplayBuffer, frac_windows: float, frac_starts: float | None = None):
+        self.main, self.extra = main, extra
+        self.frac_windows = frac_windows
+        self.frac_starts = frac_windows if frac_starts is None else frac_starts
+
+    @property
+    def size(self) -> int:
+        return self.main.size + self.extra.size
+
+    @staticmethod
+    def _split(n: int, frac: float) -> int:
+        return min(n, max(0, int(round(frac * n))))
+
+    @torch.no_grad()
+    def sample_windows(self, n: int, k: int) -> WindowBatch:
+        ne = self._split(n, self.frac_windows)
+        if ne == 0:
+            return self.main.sample_windows(n, k)
+        if ne == n:
+            return self.extra.sample_windows(n, k)
+        a, b = self.main.sample_windows(n - ne, k), self.extra.sample_windows(ne, k)
+        return WindowBatch(states=torch.cat([a.states, b.states], 1), a_exec=torch.cat([a.a_exec, b.a_exec], 1), a_clean=torch.cat([a.a_clean, b.a_clean], 1),
+                           xi=torch.cat([a.xi, b.xi], 0), reward=torch.cat([a.reward, b.reward], 1), done=torch.cat([a.done, b.done], 1),
+                           frame=torch.cat([a.frame, b.frame], 1))
+
+    @torch.no_grad()
+    def sample_starts(self, n: int, hist: int) -> StartBatch:
+        ne = self._split(n, self.frac_starts)
+        if ne == 0:
+            return self.main.sample_starts(n, hist)
+        if ne == n:
+            return self.extra.sample_starts(n, hist)
+        a, b = self.main.sample_starts(n - ne, hist), self.extra.sample_starts(ne, hist)
+        return StartBatch(state=torch.cat([a.state, b.state], 0), xi=torch.cat([a.xi, b.xi], 0), frame=torch.cat([a.frame, b.frame], 0),
+                          prev_action=torch.cat([a.prev_action, b.prev_action], 0), hist_states=torch.cat([a.hist_states, b.hist_states], 1),
+                          hist_actions=torch.cat([a.hist_actions, b.hist_actions], 1))
+
+    def save_extra(self, path) -> None:
+        save_buffer(self.extra, path)
+
+
+def save_buffer(buf: ReplayBuffer, path) -> None:
+    """All of a buffer's tensors and counters, for ``load_buffer``."""
+    torch.save({k: (v.cpu() if torch.is_tensor(v) else v) for k, v in vars(buf).items() if k != "device"}, path)
+
+
+def load_buffer(path, device) -> ReplayBuffer:
+    d = torch.load(path, map_location="cpu")
+    buf = ReplayBuffer.__new__(ReplayBuffer)
+    buf.device = torch.device(device)
+    for k, v in d.items():
+        setattr(buf, k, v.to(buf.device) if torch.is_tensor(v) else v)
+    return buf
