@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import math
 import json
 from dataclasses import asdict
 import sys
@@ -90,6 +91,12 @@ def parse(argv=None):
     ap.add_argument("--warmup", type=int, default=100)
     ap.add_argument("--policy-warmup", type=int, default=300)
     ap.add_argument("--action-noise", type=float, default=0.1)
+    ap.add_argument("--wm-ensemble", type=int, default=1, help="dynamics networks in the world model (1 = single model)")
+    ap.add_argument("--unc-penalty", type=float, default=0.0, help="imagined reward penalty per unit of ensemble disagreement, "
+                    "in units of the largest step reward (needs --wm-ensemble > 1)")
+    ap.add_argument("--chassis-explore", type=float, default=0.0, help="SuperMimic data collection: extra slowly varying (Ornstein-"
+                    "Uhlenbeck) noise of this std on the chassis actions (2..4), so the world model sees their effects early")
+    ap.add_argument("--chassis-explore-tau", type=float, default=0.3, help="correlation time of that noise [s]")
     # PPO
     ap.add_argument("--ppo-envs", type=int, default=4096)
     ap.add_argument("--ppo-steps", type=int, default=32)
@@ -154,11 +161,11 @@ def train_supermimic(args, lib, run_eval, log) -> tuple[torch.nn.Module, list, d
     cfg = env_cfg(args, args.num_envs, args.episode_steps + 50)
     env = VehicleTrackingEnv(cfg, lib, device=dev, seed=args.seed)
     heads, task, _spec, io, pcfg, policy, critic = networks(args, env, lib)
-    wm = WorldModel(WorldModelCfg(hidden=MODELS[args.wm], state_spec=VehicleStateSpecCfg.from_env(cfg, env.dyn.p)), heads, dev)
+    wm = WorldModel(WorldModelCfg(hidden=MODELS[args.wm], state_spec=VehicleStateSpecCfg.from_env(cfg, env.dyn.p), ensemble=args.wm_ensemble), heads, dev)
     wm_tr = WorldModelTrainer(wm, task, WMTrainerCfg(window=8, batches_per_update=2, batch_size=args.batch, lr=args.lr, compile=None))
     pol_tr = PolicyTrainer(wm, policy, critic, task, PolicyTrainerCfg(horizon=args.horizon, batch_size=args.batch, history=args.history, lr=args.lr,
                                                                        critic_lr=args.lr, critic_epochs=2, critic_minibatches=2, compile=None,
-                                                                       value_clip=cfg.tracking.max_step_reward / (1 - 0.99)))
+                                                                       value_clip=cfg.tracking.max_step_reward / (1 - 0.99), uncertainty_penalty=args.unc_penalty))
     n = args.num_envs
     obs = env.reset()
     hist = ObsHistory(heads, n, args.history, dev)
@@ -166,6 +173,10 @@ def train_supermimic(args, lib, run_eval, log) -> tuple[torch.nn.Module, list, d
     noise_half = heads.obs_noise_half().to(dev)
     curve, train_s, it, next_eval, budget, passed = [], 0.0, 0, 0.0, 60 * args.budget_min, set()
     wm_m, pol_m = {}, {}
+    explore = None
+    if args.chassis_explore > 0 and cfg.action_dim > 2:  # OU noise on the chassis actions, per environment
+        rho = math.exp(-cfg.dt / args.chassis_explore_tau)
+        explore = torch.zeros(n, cfg.action_dim - 2, device=dev)
     while True:
         steps_due = [m for m in args.eval_at_steps if it * n >= m and m not in passed]
         done = train_s >= budget or (args.sm_max_iters is not None and it >= args.sm_max_iters)
@@ -173,7 +184,8 @@ def train_supermimic(args, lib, run_eval, log) -> tuple[torch.nn.Module, list, d
             passed.update(steps_due)
             row = {"time_s": round(train_s, 1), "env_steps": it * n, "iter": it, **run_eval(policy)}
             curve.append(row)
-            log(f"supermimic {row}  wm 8-step {float(wm_m.get('nse_kstep', float('nan'))):.3f}  imag return {float(pol_m.get('imag_return_undisc', float('nan'))):.3f}")
+            log(f"supermimic {row}  wm 8-step {float(wm_m.get('nse_kstep', float('nan'))):.3f}  imag return {float(pol_m.get('imag_return_undisc', float('nan'))):.3f}"
+                + (f"  disagreement {float(pol_m.get('imag_r/ensemble_disagreement', float('nan'))):.4f}" if args.wm_ensemble > 1 else ""))
             if train_s >= next_eval:
                 next_eval += args.eval_every_s
         if done:
@@ -182,7 +194,11 @@ def train_supermimic(args, lib, run_eval, log) -> tuple[torch.nn.Module, list, d
         for _ in range(20 if args.sm_max_iters is None else min(20, args.sm_max_iters - it)):  # timing / evaluation granularity
             with torch.no_grad():
                 a = policy(hist.flat(), obs["goal"])
-                obs, _r, _t, _tr, info = env.step(a, args.action_noise * torch.randn_like(a))
+                noise = args.action_noise * torch.randn_like(a)
+                if explore is not None:
+                    explore = rho * explore + math.sqrt(1 - rho * rho) * args.chassis_explore * torch.randn_like(explore)
+                    noise[:, 2:] += explore
+                obs, _r, _t, _tr, info = env.step(a, noise)
             noisy = obs["policy"] + (torch.rand_like(obs["policy"]) * 2 - 1) * noise_half
             hist.push(noisy)
             if info["done"].any():

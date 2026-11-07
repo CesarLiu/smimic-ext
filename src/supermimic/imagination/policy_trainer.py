@@ -41,6 +41,9 @@ class PolicyTrainerCfg:
     # Off by default (the G1 runs never needed it); keeps bootstrapping from running away when imagined
     # states leave the data.
     value_clip: float | None = None
+    # with an ensemble world model: reward penalty per unit of member disagreement, in units of the largest step
+    # reward (see ``ImagStep``); 0 = off
+    uncertainty_penalty: float = 0.0
 
 
 class PolicyTrainer:
@@ -54,7 +57,7 @@ class PolicyTrainer:
         self.critic_opt = torch.optim.Adam(critic.parameters(), lr=cfg.critic_lr)
         from supermimic.imagination.compiled import ImagStep
 
-        self.step_fn = ImagStep(wm, compile_mode=cfg.compile)
+        self.step_fn = ImagStep(wm, compile_mode=cfg.compile, uncertainty_penalty=cfg.uncertainty_penalty)
 
     def set_lr(self, lr: float) -> None:
         for g in self.opt.param_groups:

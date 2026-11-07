@@ -87,11 +87,13 @@ def imagine(
     e_roots = [heads.critic_features(s, ref)]
     term_names = heads.reward_term_names
     term_sum = torch.zeros(len(term_names), device=device)
+    unc_sum = torch.zeros((), device=device)
 
     for t in range(horizon):
         obs_flat = heads.flatten_obs_history(torch.stack(hist, 0))
         a = policy(obs_flat, goals[-1])
         s_next, r, term_vec, logits, obs_clean, aux = step_fn(s, a, a_prev, start.xi, ref)
+        unc_sum += step_fn.last_disagreement.detach().mean()
         d = torch.sigmoid(logits)
         c = c * (1.0 - d)
         term_sum += term_vec.detach().mean(-1)
@@ -119,5 +121,6 @@ def imagine(
         goals=torch.stack(goals),
         e_root=torch.stack(e_roots),
         frames=torch.stack(frames),
-        reward_terms={k: float(v / horizon) for k, v in zip(term_names, term_sum.tolist())},
+        reward_terms={**{k: float(v / horizon) for k, v in zip(term_names, term_sum.tolist())},
+                      **({"ensemble_disagreement": float(unc_sum / horizon)} if wm.ensemble > 1 else {})},
     )

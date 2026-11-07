@@ -17,8 +17,13 @@ from supermimic.world_model.world_model import WorldModel
 
 
 class ImagStep:
-    def __init__(self, wm: WorldModel, compile_mode: str | None = None):
+    def __init__(self, wm: WorldModel, compile_mode: str | None = None, uncertainty_penalty: float = 0.0):
+        """``uncertainty_penalty`` (with an ensemble world model): the reward loses ``uncertainty_penalty`` x
+        ``heads.max_step_reward`` x the members' disagreement, so the policy gradient steers away from where the
+        model is unsure (the disagreement is differentiable in the action)."""
         self.wm = wm
+        self.uncertainty_penalty = uncertainty_penalty
+        self.last_disagreement = None  # (n,) ensemble disagreement of the last call (zeros for a single model)
         self.term_names = wm.heads.reward_term_names
         self._ref_cls = None
         self._fn = self._step
@@ -28,14 +33,25 @@ class ImagStep:
 
     def _step(self, s, a, a_prev, xi, *ref_fields):
         ref = ref_from_tensors(self._ref_cls, ref_fields)
-        s_next = self.wm.step(s, a, xi)
+        if self.wm.ensemble > 1:
+            s_next, unc = self.wm.step_with_uncertainty(s, a, xi)
+        else:
+            s_next, unc = self.wm.step(s, a, xi), None
         out = self.wm.heads.evaluate(s_next, a, a_prev, xi, ref)
         terms = out.reward_terms
         term_vec = torch.stack([terms[k] for k in self.term_names], dim=0)  # (n_terms, n)
         logits = self.wm.termination_logits(s_next, ref)
-        return s_next, terms["total"], term_vec, logits, out.obs, out.aux
+        r = terms["total"]
+        if unc is None:
+            unc = torch.zeros_like(r)
+        elif self.uncertainty_penalty:
+            r = r - self.uncertainty_penalty * self.wm.heads.max_step_reward * unc
+        return s_next, r, term_vec, logits, out.obs, out.aux, unc
 
     def __call__(self, s, a, a_prev, xi, ref):
-        """-> s_next, reward, reward-term vector, termination logits, next clean obs, aux (or None)."""
+        """-> s_next, reward (minus the uncertainty penalty, if any), reward-term vector, termination logits, next clean
+        obs, aux (or None). The ensemble disagreement of the step is left in ``last_disagreement``."""
         self._ref_cls = type(ref)
-        return self._fn(s, a, a_prev, xi, *ref_tensors(ref))
+        out = self._fn(s, a, a_prev, xi, *ref_tensors(ref))
+        self.last_disagreement = out[6]
+        return out[:6]
