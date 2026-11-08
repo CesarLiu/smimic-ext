@@ -104,6 +104,7 @@ def parse(argv=None):
     ap.add_argument("--nmpc-data-chassis", type=float, default=0.5, help="std of the OU excitation of the chassis actions (the NMPC keeps them neutral)")
     ap.add_argument("--nmpc-data-frac", type=float, default=0.0, help="share of every world-model and imagination batch drawn from the NMPC data (0 = pretraining only; 0.3 hurt, VEHICLE_PROPOSAL.md section 10.7)")
     ap.add_argument("--nmpc-pretrain", type=int, default=200, help="world-model updates on the NMPC data alone before training")
+    ap.add_argument("--replay-steps", type=int, default=None, help="SuperMimic replay capacity per environment [steps] (default: episode steps + 50, about one episode)")
     ap.add_argument("--save-buffer-at", type=int, nargs="*", default=[], help="SuperMimic iterations at which to save its replay buffer to <out-dir>/replay_it<N>.pt (for scripts/vehicle/wm_capacity.py)")
     ap.add_argument("--nmpc-data-cache", default=None, help="load the NMPC data from this file if it exists, else collect and save it there")
     # PPO
@@ -203,7 +204,7 @@ def collect_nmpc_data(args, cfg, lib, log):
 def train_supermimic(args, lib, run_eval, log) -> tuple[torch.nn.Module, list, dict]:
     torch.manual_seed(args.seed)
     dev = args.device
-    cfg = env_cfg(args, args.num_envs, args.episode_steps + 50)
+    cfg = env_cfg(args, args.num_envs, args.replay_steps or args.episode_steps + 50)
     env = VehicleTrackingEnv(cfg, lib, device=dev, seed=args.seed)
     heads, task, _spec, io, pcfg, policy, critic = networks(args, env, lib)
     wm = WorldModel(WorldModelCfg(hidden=MODELS[args.wm], state_spec=VehicleStateSpecCfg.from_env(cfg, env.dyn.p), ensemble=args.wm_ensemble), heads, dev)
