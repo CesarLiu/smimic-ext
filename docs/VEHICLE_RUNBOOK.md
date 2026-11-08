@@ -19,7 +19,7 @@
 | E6（部分） | S 弯 demo：SuperMimic 对比 PPO（同一训练库，S 弯为未见过的测试） | ✅ CPU 上跑过一次（各 8 分钟，单种子）：相同数据量下 SuperMimic 样本效率高约 3–4 倍；相同时间下 PPO 更好（0.96 对 0.81）；两者都跑完 S 弯。待 H200、多种子。NMPC 基线已实现，只用策略拿到的车载信息时：各项回报 0.99、横向误差 0.01–0.03 m，噪声、延迟、参数失配下无终止；每步求解约 9 ms，策略约 0.1 ms。这个设定下 NMPC 明显优于两个学习方法 | §3.11、§3.12，第 7 步，`docs/results/vehicle_compare_ppo_cpu*`、`vehicle_nmpc*` |
 | demo | 麋鹿测试（ISO 3888-2 避障变道，按锥桶接触评分） | ✅ CPU 上跑过（赛道尺寸已按二手资料更正，第一版结果作废）：车载信息版 NMPC 通过到干路 60、湿滑路 45 km/h（参考线的上限）；两个策略在所有速度都碰到 1–5 个桶 | §3.13，第 8 步，`docs/results/vehicle_elk*` |
 | C1 | 集成底盘（5 维动作：加后轮转向、扭矩矢量、主动防倾分配） | ⚠️ 实现并测试完毕。加世界模型集成、不确定性惩罚和底盘探索激励后，SuperMimic 5 维留出回报 0.43 → 0.71（2 维 0.80），不再崩；再用 NMPC 数据预训练世界模型，到 0.77，横向误差和麋鹿测试碰桶数与 2 维相当（NMPC 数据一直混入批次反而变差，0.35）。样本效率没变好，关卡未通过。§10.8：世界模型做大、训久都能降低它的误差，但策略训练不稳定（加长训练后回报在 0.45–0.78 之间摆动），可疑原因是回放缓冲区太小 | §10.5–§10.8，第 9 步，`docs/results/vehicle_chassis*` |
-| 方向调整 | 复盘后改做越野、可变形地面上的高速驾驶（Project Chrono），先测“样本贵”关卡 G0 | ✅ G0 通过：4 核 CPU 上 Chrono HMMWV 硬地面 562、SCM 可变形地面 379（网格 0.10 m）/ 177（0.05 m）控制步/s，比本仿真器慢 155 / 231 / 494 倍。贵的主要是多体模型本身；同样硬件下 SuperMimic 的墙钟优势最多是样本效率的倍数（3–4 倍）。下一步 G1 | §11.4，第 10 步，`docs/results/vehicle_chrono_throughput.json` |
+| 方向调整 | 复盘后改做越野、可变形地面上的高速驾驶（Project Chrono），先测“样本贵”关卡 G0 | ✅ G0 通过：4 核 CPU 上 Chrono HMMWV 硬地面 562、SCM 可变形地面 379（网格 0.10 m）/ 177（0.05 m）控制步/s，比本仿真器慢 155 / 231 / 494 倍。贵的主要是多体模型本身；同样硬件下 SuperMimic 的墙钟优势最多是样本效率的倍数（3–4 倍）。❌ G1 不通过：按地面辨识轮胎的单轨 NMPC 在软土、硬土上和硬地面上一样准（误差比 0.90–1.23，无终止），只在硬土 7 m/s 的 S 弯上（接近土壤侧向极限）误差到 3.4 倍 | §11.4，第 10 步，`docs/results/vehicle_chrono_*` |
 
 ## 环境
 
@@ -468,6 +468,19 @@ env -u PYTHONPATH uv run python scripts/vehicle/bench_sim.py --device cpu --num-
 - 默认配置：硬地面加 TMeasy 轮胎、SCM 网格 0.10 m 和 0.05 m 加刚性轮胎，各用 1、2、4 个进程，每个进程一辆 HMMWV，单线程；
 - 输出每种配置的控制步/s（50 Hz）、墙钟/仿真时间、平均车速，以及“本仿真器快多少倍”；
 - 结果（本会话 4 核 CPU）：见上表的状态行；`docs/results/vehicle_chrono_throughput.json`。
+
+- [x] G1：单轨 NMPC 在可变形地面上的模型失配（约 20 分钟，CPU）
+
+```bash
+export SUPERMIMIC_CHRONO_PYTHON=$PWD/chrono_env/bin/python
+env -u PYTHONPATH uv run python scripts/vehicle/chrono_g1.py --out logs/chrono_g1.json --plot logs/chrono_g1.png              # 4 m/s：硬地面、软土、硬土
+env -u PYTHONPATH uv run python scripts/vehicle/chrono_g1.py --terrains rigid firm --speed 7 --ay 3.5 --out logs/chrono_g1_v7.json   # 7 m/s
+```
+
+- 每种地面：先辨识（4 辆车 × 25 s 激励，单轨逆动力学反算轴力，拟合侧偏刚度，峰值取附着先验），再让 NMPC（本地面的轮胎）、NMPC（硬地面的轮胎，只在土壤上）和纯追踪跟踪一条 S 弯和 4 条随机路径；
+- 终端打印每种地面的辨识结果、各控制器的平均和最大横向误差、跑完的路径数，最后判定 G1（土壤上 NMPC 的平均误差 ≥ 硬地面的 3 倍，或有终止）；
+- 测试 `tests/test_chrono_env.py`：路径、误差、纯追踪和逆动力学的测试总是运行；Chrono 进程池的测试只在设置了 `SUPERMIMIC_CHRONO_PYTHON` 时运行；
+- 结果（本会话 4 核 CPU）：G1 不通过，见上表的状态行和 VEHICLE_PROPOSAL.md §11.4。
 
 ### 11. 下一步（E3/E4）
 
