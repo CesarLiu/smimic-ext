@@ -19,7 +19,7 @@
 | E6（部分） | S 弯 demo：SuperMimic 对比 PPO（同一训练库，S 弯为未见过的测试） | ✅ CPU 上跑过一次（各 8 分钟，单种子）：相同数据量下 SuperMimic 样本效率高约 3–4 倍；相同时间下 PPO 更好（0.96 对 0.81）；两者都跑完 S 弯。待 H200、多种子。NMPC 基线已实现，只用策略拿到的车载信息时：各项回报 0.99、横向误差 0.01–0.03 m，噪声、延迟、参数失配下无终止；每步求解约 9 ms，策略约 0.1 ms。这个设定下 NMPC 明显优于两个学习方法 | §3.11、§3.12，第 7 步，`docs/results/vehicle_compare_ppo_cpu*`、`vehicle_nmpc*` |
 | demo | 麋鹿测试（ISO 3888-2 避障变道，按锥桶接触评分） | ✅ CPU 上跑过（赛道尺寸已按二手资料更正，第一版结果作废）：车载信息版 NMPC 通过到干路 60、湿滑路 45 km/h（参考线的上限）；两个策略在所有速度都碰到 1–5 个桶 | §3.13，第 8 步，`docs/results/vehicle_elk*` |
 | C1 | 集成底盘（5 维动作：加后轮转向、扭矩矢量、主动防倾分配） | ⚠️ 实现并测试完毕。加世界模型集成、不确定性惩罚和底盘探索激励后，SuperMimic 5 维留出回报 0.43 → 0.71（2 维 0.80），不再崩；再用 NMPC 数据预训练世界模型，到 0.77，横向误差和麋鹿测试碰桶数与 2 维相当（NMPC 数据一直混入批次反而变差，0.35）。样本效率没变好，关卡未通过。§10.8：世界模型做大、训久都能降低它的误差，但策略训练不稳定（加长训练后回报在 0.45–0.78 之间摆动），可疑原因是回放缓冲区太小 | §10.5–§10.8，第 9 步，`docs/results/vehicle_chassis*` |
-| 方向调整 | 复盘后改做越野、可变形地面上的高速驾驶（Project Chrono），先测“样本贵”关卡 G0 | ⏳ G0 待测：需要用 micromamba 从 conda 的 `projectchrono` 渠道安装 PyChrono。文献估计约实时，即 4 核约 200 步/s，比本仿真器在同一 CPU 上（约 10⁵ 步/s）慢约 500 倍 | §11 |
+| 方向调整 | 复盘后改做越野、可变形地面上的高速驾驶（Project Chrono），先测“样本贵”关卡 G0 | ✅ G0 通过：4 核 CPU 上 Chrono HMMWV 硬地面 562、SCM 可变形地面 379（网格 0.10 m）/ 177（0.05 m）控制步/s，比本仿真器慢 155 / 231 / 494 倍。贵的主要是多体模型本身；同样硬件下 SuperMimic 的墙钟优势最多是样本效率的倍数（3–4 倍）。下一步 G1 | §11.4，第 10 步，`docs/results/vehicle_chrono_throughput.json` |
 
 ## 环境
 
@@ -451,7 +451,25 @@ env -u PYTHONPATH uv run python scripts/vehicle/chassis_demo.py --plain-from log
   `--` 之后要写那次运行的 `compare_ppo.py` 参数（决定车辆、动作维度和弯道库）。默认比较 256×256、512×512、1024×1024、512×512×512 四种大小，各 6000 次更新，CPU 上约 1 小时（不要和训练同时跑：4 核机器上会互相拖慢十倍以上）。结果：更大的模型误差更低（6000 次更新时 0.13 → 0.07），三层 512 用一半参数达到 1024 宽的水平；但加长在线训练让世界模型误差 0.22 → 0.12，策略却没有变好；
 - 视频（§10.7 的策略）：[`docs/results/vehicle_chassis_scurve.mp4`](results/vehicle_chassis_scurve.mp4)、[`docs/results/vehicle_chassis_elk.mp4`](results/vehicle_chassis_elk.mp4)。
 
-### 10. 下一步（E3/E4）
+### 10. Chrono 吞吐关卡 G0（VEHICLE_PROPOSAL.md §11.4；CPU 约 5 分钟）
+
+- [x] 测 Project Chrono 车辆在硬地面和可变形地面（SCM）上的单步代价，与本仿真器比较
+
+PyChrono 只能从 conda 的 `projectchrono` 渠道装（PyPI 上的 `pychrono` 是无关的同名小包，conda-forge 的版本没有车辆模块）。装进独立环境，不要装进项目的 uv 环境：
+
+```bash
+# micromamba：https://micro.mamba.pm/api/micromamba/linux-64/latest（或用已有的 conda / mamba）
+micromamba create -y -p chrono_env -c projectchrono -c conda-forge "projectchrono::pychrono=10.0.0" python=3.12   # 约 5.4 GB
+chrono_env/bin/python -I scripts/vehicle/chrono_throughput.py --out logs/chrono_throughput.json
+# 对照：本仿真器在同一台机器上的 CPU 吞吐，取各 --num-envs 里最大的值传给 --ours
+env -u PYTHONPATH uv run python scripts/vehicle/bench_sim.py --device cpu --num-envs 256 1024 4096
+```
+
+- 默认配置：硬地面加 TMeasy 轮胎、SCM 网格 0.10 m 和 0.05 m 加刚性轮胎，各用 1、2、4 个进程，每个进程一辆 HMMWV，单线程；
+- 输出每种配置的控制步/s（50 Hz）、墙钟/仿真时间、平均车速，以及“本仿真器快多少倍”；
+- 结果（本会话 4 核 CPU）：见上表的状态行；`docs/results/vehicle_chrono_throughput.json`。
+
+### 11. 下一步（E3/E4）
 
 - [x] E1 的关卡按 §3.9 修订（2026-11-04）
 - [x] 第 2 步：策略能否在附着极限附近学好（§3.10）。能；大世界模型明显更好，此后默认用大模型

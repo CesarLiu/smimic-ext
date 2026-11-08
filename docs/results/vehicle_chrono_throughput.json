@@ -1,0 +1,321 @@
+{
+ "machine": {
+  "cpus": 4,
+  "platform": "Linux-6.18.44-fc-v310-x86_64-with-glibc2.39",
+  "pychrono": "?"
+ },
+ "ours_steps_per_s": 87360.0,
+ "settings": {
+  "cases": [
+   "rigid_tmeasy",
+   "scm_0.10",
+   "scm_0.05"
+  ],
+  "procs": [
+   1,
+   2,
+   4
+  ],
+  "sim_s": 6.0,
+  "warmup_s": 1.0,
+  "throttle": 0.8,
+  "ours": 87360.0,
+  "out": "docs/results/vehicle_chrono_throughput.json"
+ },
+ "cases": {
+  "rigid_tmeasy": {
+   "config": {
+    "length": 400.0,
+    "width": 40.0,
+    "sim_s": 6.0,
+    "warmup_s": 1.0,
+    "throttle": 0.8,
+    "terrain": "rigid",
+    "step": 0.002,
+    "tire_step": 0.001
+   },
+   "runs": {
+    "1": {
+     "per_process": [
+      {
+       "setup_s": 0.005,
+       "sim_s": 6.0,
+       "wall_s": 1.587,
+       "real_time_factor": 0.264,
+       "control_steps_per_s": 189.0,
+       "mean_speed_mps": 8.87,
+       "final_x_m": -138.9
+      }
+     ],
+     "aggregate_control_steps_per_s": 189.0,
+     "ours_over_chrono": 462.2,
+     "elapsed_s": 2.2
+    },
+    "2": {
+     "per_process": [
+      {
+       "setup_s": 0.005,
+       "sim_s": 6.0,
+       "wall_s": 1.977,
+       "real_time_factor": 0.33,
+       "control_steps_per_s": 151.7,
+       "mean_speed_mps": 8.87,
+       "final_x_m": -138.9
+      },
+      {
+       "setup_s": 0.005,
+       "sim_s": 6.0,
+       "wall_s": 2.099,
+       "real_time_factor": 0.35,
+       "control_steps_per_s": 142.9,
+       "mean_speed_mps": 8.87,
+       "final_x_m": -138.9
+      }
+     ],
+     "aggregate_control_steps_per_s": 294.6,
+     "ours_over_chrono": 296.5,
+     "elapsed_s": 3.0
+    },
+    "4": {
+     "per_process": [
+      {
+       "setup_s": 0.005,
+       "sim_s": 6.0,
+       "wall_s": 1.779,
+       "real_time_factor": 0.297,
+       "control_steps_per_s": 168.6,
+       "mean_speed_mps": 8.87,
+       "final_x_m": -138.9
+      },
+      {
+       "setup_s": 0.005,
+       "sim_s": 6.0,
+       "wall_s": 2.257,
+       "real_time_factor": 0.376,
+       "control_steps_per_s": 132.9,
+       "mean_speed_mps": 8.87,
+       "final_x_m": -138.9
+      },
+      {
+       "setup_s": 0.005,
+       "sim_s": 6.0,
+       "wall_s": 2.143,
+       "real_time_factor": 0.357,
+       "control_steps_per_s": 140.0,
+       "mean_speed_mps": 8.87,
+       "final_x_m": -138.9
+      },
+      {
+       "setup_s": 0.005,
+       "sim_s": 6.0,
+       "wall_s": 2.482,
+       "real_time_factor": 0.414,
+       "control_steps_per_s": 120.8,
+       "mean_speed_mps": 8.87,
+       "final_x_m": -138.9
+      }
+     ],
+     "aggregate_control_steps_per_s": 562.3,
+     "ours_over_chrono": 155.4,
+     "elapsed_s": 3.4
+    }
+   }
+  },
+  "scm_0.10": {
+   "config": {
+    "length": 400.0,
+    "width": 40.0,
+    "sim_s": 6.0,
+    "warmup_s": 1.0,
+    "throttle": 0.8,
+    "terrain": "scm",
+    "step": 0.002,
+    "delta": 0.1
+   },
+   "runs": {
+    "1": {
+     "per_process": [
+      {
+       "setup_s": 0.107,
+       "sim_s": 6.0,
+       "wall_s": 2.553,
+       "real_time_factor": 0.425,
+       "control_steps_per_s": 117.5,
+       "mean_speed_mps": 4.16,
+       "final_x_m": -165.1
+      }
+     ],
+     "aggregate_control_steps_per_s": 117.5,
+     "ours_over_chrono": 743.5,
+     "elapsed_s": 3.5
+    },
+    "2": {
+     "per_process": [
+      {
+       "setup_s": 0.114,
+       "sim_s": 6.0,
+       "wall_s": 2.766,
+       "real_time_factor": 0.461,
+       "control_steps_per_s": 108.5,
+       "mean_speed_mps": 4.16,
+       "final_x_m": -165.1
+      },
+      {
+       "setup_s": 0.11,
+       "sim_s": 6.0,
+       "wall_s": 2.73,
+       "real_time_factor": 0.455,
+       "control_steps_per_s": 109.9,
+       "mean_speed_mps": 4.16,
+       "final_x_m": -165.1
+      }
+     ],
+     "aggregate_control_steps_per_s": 218.4,
+     "ours_over_chrono": 400.0,
+     "elapsed_s": 3.7
+    },
+    "4": {
+     "per_process": [
+      {
+       "setup_s": 0.131,
+       "sim_s": 6.0,
+       "wall_s": 2.964,
+       "real_time_factor": 0.494,
+       "control_steps_per_s": 101.2,
+       "mean_speed_mps": 4.16,
+       "final_x_m": -165.1
+      },
+      {
+       "setup_s": 0.174,
+       "sim_s": 6.0,
+       "wall_s": 2.955,
+       "real_time_factor": 0.492,
+       "control_steps_per_s": 101.5,
+       "mean_speed_mps": 4.16,
+       "final_x_m": -165.1
+      },
+      {
+       "setup_s": 0.152,
+       "sim_s": 6.0,
+       "wall_s": 3.384,
+       "real_time_factor": 0.564,
+       "control_steps_per_s": 88.7,
+       "mean_speed_mps": 4.16,
+       "final_x_m": -165.1
+      },
+      {
+       "setup_s": 0.177,
+       "sim_s": 6.0,
+       "wall_s": 3.432,
+       "real_time_factor": 0.572,
+       "control_steps_per_s": 87.4,
+       "mean_speed_mps": 4.16,
+       "final_x_m": -165.1
+      }
+     ],
+     "aggregate_control_steps_per_s": 378.8,
+     "ours_over_chrono": 230.6,
+     "elapsed_s": 4.6
+    }
+   }
+  },
+  "scm_0.05": {
+   "config": {
+    "length": 400.0,
+    "width": 40.0,
+    "sim_s": 6.0,
+    "warmup_s": 1.0,
+    "throttle": 0.8,
+    "terrain": "scm",
+    "step": 0.002,
+    "delta": 0.05
+   },
+   "runs": {
+    "1": {
+     "per_process": [
+      {
+       "setup_s": 0.506,
+       "sim_s": 6.0,
+       "wall_s": 5.508,
+       "real_time_factor": 0.918,
+       "control_steps_per_s": 54.5,
+       "mean_speed_mps": 4.18,
+       "final_x_m": -165.0
+      }
+     ],
+     "aggregate_control_steps_per_s": 54.5,
+     "ours_over_chrono": 1602.9,
+     "elapsed_s": 7.4
+    },
+    "2": {
+     "per_process": [
+      {
+       "setup_s": 0.489,
+       "sim_s": 6.0,
+       "wall_s": 6.53,
+       "real_time_factor": 1.088,
+       "control_steps_per_s": 45.9,
+       "mean_speed_mps": 4.18,
+       "final_x_m": -165.0
+      },
+      {
+       "setup_s": 0.526,
+       "sim_s": 6.0,
+       "wall_s": 6.67,
+       "real_time_factor": 1.112,
+       "control_steps_per_s": 45.0,
+       "mean_speed_mps": 4.18,
+       "final_x_m": -165.0
+      }
+     ],
+     "aggregate_control_steps_per_s": 90.9,
+     "ours_over_chrono": 961.1,
+     "elapsed_s": 8.5
+    },
+    "4": {
+     "per_process": [
+      {
+       "setup_s": 0.485,
+       "sim_s": 6.0,
+       "wall_s": 6.343,
+       "real_time_factor": 1.057,
+       "control_steps_per_s": 47.3,
+       "mean_speed_mps": 4.18,
+       "final_x_m": -165.0
+      },
+      {
+       "setup_s": 0.521,
+       "sim_s": 6.0,
+       "wall_s": 6.422,
+       "real_time_factor": 1.07,
+       "control_steps_per_s": 46.7,
+       "mean_speed_mps": 4.18,
+       "final_x_m": -165.0
+      },
+      {
+       "setup_s": 0.601,
+       "sim_s": 6.0,
+       "wall_s": 7.184,
+       "real_time_factor": 1.197,
+       "control_steps_per_s": 41.8,
+       "mean_speed_mps": 4.18,
+       "final_x_m": -165.0
+      },
+      {
+       "setup_s": 0.519,
+       "sim_s": 6.0,
+       "wall_s": 7.304,
+       "real_time_factor": 1.217,
+       "control_steps_per_s": 41.1,
+       "mean_speed_mps": 4.18,
+       "final_x_m": -165.0
+      }
+     ],
+     "aggregate_control_steps_per_s": 176.9,
+     "ours_over_chrono": 493.8,
+     "elapsed_s": 9.5
+    }
+   }
+  }
+ }
+}
