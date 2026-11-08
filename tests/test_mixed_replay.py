@@ -35,3 +35,22 @@ def test_mixed_batches(tmp_path):
     back = load_buffer(tmp_path / "b.pt", "cpu")
     assert back.size == extra.size and torch.equal(back.s, extra.s) and torch.equal(back.ptr, extra.ptr)
     assert back.sample_windows(4, 4).states.shape == (5, 4, extra.s.shape[-1])
+
+
+def test_env_subset():
+    """``wm_capacity.env_subset``: the rows of some environments as a buffer of their own (held-out split)."""
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "vehicle"))
+    from wm_capacity import env_subset
+
+    buf = _filled(0)
+    for e in range(buf.E):
+        buf.xi[e] = float(e)  # tag rows by environment
+    ids = torch.tensor([1, 5, 6])
+    sub = env_subset(buf, ids)
+    assert sub.E == 3 and sub.size == int(buf.valid[ids].sum()) and torch.equal(sub.s, buf.s[ids])
+    w = sub.sample_windows(64, 4)
+    assert set(w.xi[:, 0].tolist()) <= {1.0, 5.0, 6.0}
+    assert buf.E == 8 and buf.sample_windows(4, 4).states.shape[1] == 4  # the original is untouched

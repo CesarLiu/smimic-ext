@@ -104,6 +104,7 @@ def parse(argv=None):
     ap.add_argument("--nmpc-data-chassis", type=float, default=0.5, help="std of the OU excitation of the chassis actions (the NMPC keeps them neutral)")
     ap.add_argument("--nmpc-data-frac", type=float, default=0.0, help="share of every world-model and imagination batch drawn from the NMPC data (0 = pretraining only; 0.3 hurt, VEHICLE_PROPOSAL.md section 10.7)")
     ap.add_argument("--nmpc-pretrain", type=int, default=200, help="world-model updates on the NMPC data alone before training")
+    ap.add_argument("--save-buffer-at", type=int, nargs="*", default=[], help="SuperMimic iterations at which to save its replay buffer to <out-dir>/replay_it<N>.pt (for scripts/vehicle/wm_capacity.py)")
     ap.add_argument("--nmpc-data-cache", default=None, help="load the NMPC data from this file if it exists, else collect and save it there")
     # PPO
     ap.add_argument("--ppo-envs", type=int, default=4096)
@@ -216,7 +217,7 @@ def train_supermimic(args, lib, run_eval, log) -> tuple[torch.nn.Module, list, d
     hist.reset(torch.arange(n, device=dev), obs["policy"])
     noise_half = heads.obs_noise_half().to(dev)
     curve, train_s, it, next_eval, budget, passed = [], 0.0, 0, 0.0, 60 * args.budget_min, set()
-    wm_m, pol_m = {}, {}
+    wm_m, pol_m, saved = {}, {}, set()
     data, nmpc_rows = env.buffer, 0
     if args.nmpc_data_steps > 0:
         from supermimic.data.replay_buffer import MixedReplay
@@ -265,6 +266,13 @@ def train_supermimic(args, lib, run_eval, log) -> tuple[torch.nn.Module, list, d
             it += 1
         _sync(dev)
         train_s += time.time() - t0
+        for s in [s for s in args.save_buffer_at if it >= s and s not in saved]:
+            from supermimic.data.replay_buffer import save_buffer
+
+            saved.add(s)
+            Path(args.out_dir).mkdir(parents=True, exist_ok=True)
+            save_buffer(env.buffer, Path(args.out_dir) / f"replay_it{s}.pt")
+            log(f"replay buffer saved at iteration {it}: {env.buffer.size} rows")
     return policy, curve, {"iterations": it, "env_steps": it * n, "nmpc_data_rows": nmpc_rows, "train_s": round(train_s, 1)}
 
 
