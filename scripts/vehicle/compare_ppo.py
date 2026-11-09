@@ -24,7 +24,8 @@ limit that neither saw in training.
   mu g, one per friction level (``ReferenceLibrary.s_curve``).
 
 Writes ``report.json``, ``curves.png`` (learning curves), ``s_curve.png`` (paths and lateral error) and
-``policies.pt`` (the trained policies and the NMPC settings, for ``render_scurve.py``) to ``--out-dir``. One seed;
+``policies.pt`` (the trained policies and the NMPC settings, for ``render_scurve.py``) and ``supermimic_wm.pt`` (SuperMimic's world
+model) to ``--out-dir``. One seed;
 no pass / fail gate.
 """
 
@@ -274,6 +275,9 @@ def train_supermimic(args, lib, run_eval, log) -> tuple[torch.nn.Module, list, d
             Path(args.out_dir).mkdir(parents=True, exist_ok=True)
             save_buffer(env.buffer, Path(args.out_dir) / f"replay_it{s}.pt")
             log(f"replay buffer saved at iteration {it}: {env.buffer.size} rows")
+    Path(args.out_dir).mkdir(parents=True, exist_ok=True)  # the world model, for gradient checks (scripts/vehicle/xi_gradient_check.py)
+    torch.save({"wm": {k: v.detach().cpu() for k, v in wm.state_dict().items()}, "hidden": MODELS[args.wm], "ensemble": args.wm_ensemble},
+               Path(args.out_dir) / "supermimic_wm.pt")
     return policy, curve, {"iterations": it, "env_steps": it * n, "nmpc_data_rows": nmpc_rows, "train_s": round(train_s, 1)}
 
 

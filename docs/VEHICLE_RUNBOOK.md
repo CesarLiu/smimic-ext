@@ -20,6 +20,8 @@
 | demo | 麋鹿测试（ISO 3888-2 避障变道，按锥桶接触评分） | ✅ CPU 上跑过（赛道尺寸已按二手资料更正，第一版结果作废）：车载信息版 NMPC 通过到干路 60、湿滑路 45 km/h（参考线的上限）；两个策略在所有速度都碰到 1–5 个桶 | §3.13，第 8 步，`docs/results/vehicle_elk*` |
 | C1 | 集成底盘（5 维动作：加后轮转向、扭矩矢量、主动防倾分配） | ⚠️ 实现并测试完毕。加世界模型集成、不确定性惩罚和底盘探索激励后，SuperMimic 5 维留出回报 0.43 → 0.71（2 维 0.80），不再崩；再用 NMPC 数据预训练世界模型，到 0.77，横向误差和麋鹿测试碰桶数与 2 维相当（NMPC 数据一直混入批次反而变差，0.35）。样本效率没变好，关卡未通过。§10.8：世界模型做大、训久都能降低它的误差，但策略训练不稳定（加长训练后回报在 0.45–0.78 之间摆动），可疑原因是回放缓冲区太小 | §10.5–§10.8，第 9 步，`docs/results/vehicle_chassis*` |
 | 方向调整 | 复盘后改做越野、可变形地面上的高速驾驶（Project Chrono），先测“样本贵”关卡 G0 | ✅ G0 通过：4 核 CPU 上 Chrono HMMWV 硬地面 562、SCM 可变形地面 379（网格 0.10 m）/ 177（0.05 m）控制步/s，比本仿真器慢 155 / 231 / 494 倍。贵的主要是多体模型本身；同样硬件下 SuperMimic 的墙钟优势最多是样本效率的倍数（3–4 倍）。❌ G1 不通过：按地面辨识轮胎的单轨 NMPC 在软土、硬土上和硬地面上一样准（误差比 0.90–1.23，无终止），只在硬土 7 m/s 的 S 弯上（接近土壤侧向极限）误差到 3.4 倍 | §11.4，第 10 步，`docs/results/vehicle_chrono_*` |
+| 精度上限 | 加大回放缓冲区、3 个种子（2 维） | ❌ 缓冲区 300 → 2000 步没有用（5400 次迭代时 0.71 ± 0.14 对 0.63 ± 0.12）；2 维也大幅摆动，种子间差异 0.29–0.76；精度上限远低于 PPO（0.96）。之前的单种子比较都在噪声以内 | §11.7，第 11 步，`docs/results/vehicle_replay_multiseed.json` |
+| ξ 梯度检查 | 世界模型对附着、轮胎刚度、质量、质心的梯度（协同设计、辨识、压力测试的前提） | ✅ 轮胎刚度、质心的闭环梯度可用，沿模型梯度改参数在 79–95% 的情况下真实回报变好（随机方向约 50%）；质量、轮胎刚度的开环梯度近乎完美；μ 在利用率 ≥ 0.6 时也好 | §11.8，第 11 步，`docs/results/vehicle_xi_gradient_check.json` |
 
 ## 环境
 
@@ -482,7 +484,29 @@ env -u PYTHONPATH uv run python scripts/vehicle/chrono_g1.py --terrains rigid fi
 - 测试 `tests/test_chrono_env.py`：路径、误差、纯追踪和逆动力学的测试总是运行；Chrono 进程池的测试只在设置了 `SUPERMIMIC_CHRONO_PYTHON` 时运行；
 - 结果（本会话 4 核 CPU）：G1 不通过，见上表的状态行和 VEHICLE_PROPOSAL.md §11.4。
 
-### 11. 下一步（E3/E4）
+### 11. 精度上限与 ξ 梯度检查（VEHICLE_PROPOSAL.md §11.7、§11.8；CPU 约 2 小时 + 5 分钟）
+
+- [x] 回放缓冲区 300 对 2000 步，种子 0–2，各 5400 次迭代
+
+```bash
+for seed in 0 1 2; do for R in 300 2000; do
+  env -u PYTHONPATH uv run python scripts/vehicle/compare_ppo.py --methods supermimic --sm-max-iters 5400 --budget-min 600 \
+    --eval-every-s 1200 --eval-at-steps 1e5 2e5 5e5 691200 1e6 1382400 --seed $seed --replay-steps $R --out-dir logs/rb/r${R}_s$seed
+done; done
+```
+
+在 4 核机器上可以两个运行并排跑，各用 `--threads 2` 并用 `taskset` 绑在不重叠的核上（线程总数超过核数会慢十倍以上）。`compare_ppo.py` 现在会在 `--out-dir` 里另存 `supermimic_wm.pt`（世界模型），供下面的检查用。
+
+- [x] ξ 梯度检查（每次运行约 1 分钟）
+
+```bash
+env -u PYTHONPATH uv run python scripts/vehicle/xi_gradient_check.py --run logs/rb/r300_s1 --out logs/xi_r300_s1.json
+```
+
+- 输出闭环（H = 8、50 步）的 dJ/dξ 一致性（符号、相关、幅值比、余弦，按附着利用率分组）、下降检验（沿模型梯度改 ξ 后真实回报变好的比例，对照仿真器梯度和随机方向）和开环 k = 8、32 步的 ds_k/dξ 一致性；
+- 结果见上表的状态行和 VEHICLE_PROPOSAL.md §11.8；可能更有意义的设定见 §11.9。
+
+### 12. 下一步（E3/E4）
 
 - [x] E1 的关卡按 §3.9 修订（2026-11-04）
 - [x] 第 2 步：策略能否在附着极限附近学好（§3.10）。能；大世界模型明显更好，此后默认用大模型
