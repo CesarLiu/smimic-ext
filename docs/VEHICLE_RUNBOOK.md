@@ -506,7 +506,29 @@ env -u PYTHONPATH uv run python scripts/vehicle/xi_gradient_check.py --run logs/
 - 输出闭环（H = 8、50 步）的 dJ/dξ 一致性（符号、相关、幅值比、余弦，按附着利用率分组）、下降检验（沿模型梯度改 ξ 后真实回报变好的比例，对照仿真器梯度和随机方向）和开环 k = 8、32 步的 ds_k/dξ 一致性；
 - 结果见上表的状态行和 VEHICLE_PROPOSAL.md §11.8；可能更有意义的设定见 §11.9。
 
-### 12. 下一步（E3/E4）
+### 12. GPU：训练稳定性扫描（VEHICLE_PROPOSAL.md §11.10）
+
+- [ ] `stability`：7 个配置 × 4 个种子，SuperMimic 2 维，各 5400 次迭代
+- [ ] `ppo_seeds`：PPO 4 个种子
+- [ ] `chassis_long`：在 `stability` 选出批大小之后
+
+```bash
+git pull && uv sync --group dev
+# 4 块卡，每块 3 个进程（显存和 CPU 允许就加大 --per-gpu）；中断后重跑同一命令会跳过已完成的运行
+env -u PYTHONPATH uv run python scripts/vehicle/sweep.py --plan stability --gpus 0 1 2 3 --per-gpu 3 --out logs/sweep
+env -u PYTHONPATH uv run python scripts/vehicle/sweep.py --plan ppo_seeds --gpus 0 1 2 3 --per-gpu 1 --out logs/sweep
+env -u PYTHONPATH uv run python scripts/vehicle/summarize_runs.py logs/sweep/stability logs/sweep/ppo_seeds --json logs/sweep/summary.json
+# 选出批大小后（例如 4096）：
+env -u PYTHONPATH uv run python scripts/vehicle/sweep.py --plan chassis_long --chassis-batch 4096 --gpus 0 1 2 3 --per-gpu 2 --out logs/sweep
+```
+
+- 先用 `--dry-run` 看要跑的命令；`--configs` 只跑其中几个配置；每个运行的日志在 `<out>/<计划>/<配置>/seed<k>/run.log`；
+- 每个进程默认用 2 个 CPU 线程（`--threads`），保证“进程数 × 线程数”不超过服务器的核数；
+- 单次运行在 GPU 上的耗时还没实测（CPU 上 2 维 5400 次迭代约 30 分钟，2 线程）；先单独跑一个配置看看时长，再决定 `--per-gpu`；
+- 汇总表：每个配置的最终留出回报（均值 ± 标准差）、最差种子、后半程最低值（稳定性）、S 弯回报和横向误差、终止率，以及 50 万、100 万、200 万、500 万、1337 万步时的回报；
+- 判定见 VEHICLE_PROPOSAL.md §11.10。把 `logs/sweep/summary.json` 和汇总表发回来。
+
+### 13. 下一步（E3/E4）
 
 - [x] E1 的关卡按 §3.9 修订（2026-11-04）
 - [x] 第 2 步：策略能否在附着极限附近学好（§3.10）。能；大世界模型明显更好，此后默认用大模型
