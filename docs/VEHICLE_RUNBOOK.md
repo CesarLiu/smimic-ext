@@ -22,6 +22,7 @@
 | 方向调整 | 复盘后改做越野、可变形地面上的高速驾驶（Project Chrono），先测“样本贵”关卡 G0 | ✅ G0 通过：4 核 CPU 上 Chrono HMMWV 硬地面 562、SCM 可变形地面 379（网格 0.10 m）/ 177（0.05 m）控制步/s，比本仿真器慢 155 / 231 / 494 倍。贵的主要是多体模型本身；同样硬件下 SuperMimic 的墙钟优势最多是样本效率的倍数（3–4 倍）。❌ G1 不通过：按地面辨识轮胎的单轨 NMPC 在软土、硬土上和硬地面上一样准（误差比 0.90–1.23，无终止），只在硬土 7 m/s 的 S 弯上（接近土壤侧向极限）误差到 3.4 倍 | §11.4，第 10 步，`docs/results/vehicle_chrono_*` |
 | 精度上限 | 加大回放缓冲区、3 个种子（2 维） | ❌ 缓冲区 300 → 2000 步没有用（5400 次迭代时 0.71 ± 0.14 对 0.63 ± 0.12）；2 维也大幅摆动，种子间差异 0.29–0.76；精度上限远低于 PPO（0.96）。之前的单种子比较都在噪声以内 | §11.7，第 11 步，`docs/results/vehicle_replay_multiseed.json` |
 | ξ 梯度检查 | 世界模型对附着、轮胎刚度、质量、质心的梯度（协同设计、辨识、压力测试的前提） | ✅ 轮胎刚度、质心的闭环梯度可用，沿模型梯度改参数在 79–95% 的情况下真实回报变好（随机方向约 50%）；质量、轮胎刚度的开环梯度近乎完美；μ 在利用率 ≥ 0.6 时也好 | §11.8，第 11 步，`docs/results/vehicle_xi_gradient_check.json` |
+| 接触切换 | 两轮离地附近的世界模型与防侧翻控制（Chrono 多体） | ✅ 世界模型学得会两轮离地（梯度余弦 0.94–0.95，翻滚后变差）；SuperMimic 用约 13 万 Chrono 步学出的控制器跟踪比经典限速准 3–5 倍、总回报持平（冲出车道 3/16 对 1/16）；同样预算的 PPO 16/16 冲出车道。可行性结论见 §11.13 | §11.12、§11.13，第 14 步，`docs/results/vehicle_chrono_lift_check.json`、`vehicle_chrono_rollover_*` |
 
 ## 环境
 
@@ -548,7 +549,23 @@ env -u PYTHONPATH uv run python scripts/vehicle/render_rollover.py --data logs/r
 - 鱼钩测试（原车、车顶载重 800 kg 低速、同样载重高速）和绊倒（冰面横滑：无障碍、4 m/s 撞路肩、8 m/s 撞路肩）；
 - 终端打印每次运行的最大倾斜、是否翻倒、同侧两轮离地的时间；视频里红色车轮表示离地，下方是车身侧倾角，粗线段表示同侧两轮离地。
 
-### 14. 下一步（E3/E4）
+### 14. 两轮离地的世界模型与防侧翻控制（VEHICLE_PROPOSAL.md §11.12；CPU 约 2.5 小时）
+
+```bash
+export SUPERMIMIC_CHRONO_PYTHON=$PWD/chrono_env/bin/python
+# A：采 480 段随机激励数据（缓存）、训练世界模型、按工况检查预测误差和梯度（约 20 分钟）
+env -u PYTHONPATH uv run python scripts/vehicle/chrono_lift_check.py --cache logs/chrono_lift_data.npz --out logs/chrono_lift_check.json
+# B：SuperMimic 循环 20 轮（约 70 分钟），基线在开头评估
+env -u PYTHONPATH uv run python scripts/vehicle/chrono_rollover_control.py --lift-data logs/chrono_lift_data.npz --out logs/chrono_rollover_control.json
+# 同样预算的 PPO（13.3 万步约 25 分钟；40 万步约 75 分钟）
+env -u PYTHONPATH uv run python scripts/vehicle/chrono_rollover_ppo.py --lift-data logs/chrono_lift_data.npz --steps 400000 --eval-every 33000 --out logs/chrono_rollover_ppo.json
+```
+
+- A 打印每种工况（四轮着地、单轮离地、两轮离地、翻滚中、离地 / 落地切换）的 8 步误差，以及 k = 5、15 步时转向梯度与 Chrono 重放差分的一致性；
+- B 和 PPO 在同一组 16 段留出路径上评估：回报、冲出车道和翻车次数、横向误差、平均车速、两轮离地总时长；
+- 测试：`tests/test_chrono_env.py` 里的重放确定性测试，需要设置 `SUPERMIMIC_CHRONO_PYTHON`。
+
+### 15. 下一步（E3/E4）
 
 - [x] E1 的关卡按 §3.9 修订（2026-11-04）
 - [x] 第 2 步：策略能否在附着极限附近学好（§3.10）。能；大世界模型明显更好，此后默认用大模型
