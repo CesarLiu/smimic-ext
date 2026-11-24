@@ -14,7 +14,14 @@ what our own environment's actions command:
   speed tracks through throttle and brake (the integral term absorbs rolling and bulldozing resistance).
 
 Messages (dicts): {"op": "reset", "cfg": {...}} -> observation; {"op": "step", "s_cmd": f, "a_cmd": f} ->
-observation; {"op": "info"} -> vehicle constants; {"op": "close"}.
+observation; {"op": "rollout", "cfg": {...}, "actions": [[s_cmd, a_cmd], ...]} -> {"obs0": observation after the
+reset, "obs": one observation per action, cut where the observation stops being ok}; {"op": "info"} -> vehicle
+constants; {"op": "close"}. A rollout is deterministic: the same cfg and actions give the same observations, which is
+how finite differences are taken without copying Chrono's state.
+
+Options for wheel-lift studies (defaults keep the G1 setting): ``roof_kg`` (a box rigidly fixed 1.6 m above the
+chassis reference frame), ``powertrain`` "map" (map-based engine and gearbox; the shafts model starts in first gear
+and brakes hard at speed), ``chassis_collision`` (the chassis lands when it rolls), ``max_roll`` [rad].
 """
 
 from __future__ import annotations
@@ -44,6 +51,8 @@ DEFAULTS = {
     "settle": 2.0,  # [s] straight driving toward speed v after the drop, before the first observation
     "steer_tau": 0.05, "steer_rate": 1.2,  # servo time constant [s], rate limit [1/s] in normalised units
     "kp": 0.4, "ki": 0.4, "kff": 0.08,  # speed loop: throttle per (m/s) error, per (m/s s), per (m/s^2) command
+    "roof_kg": 0.0, "powertrain": "shafts", "chassis_collision": False,
+    "max_roll": 0.7,  # [rad] the observation is not ok beyond this roll
 }
 
 
@@ -66,8 +75,14 @@ class Sim:
         q.SetFromAngleZ(c["yaw"])
         h.SetInitPosition(chrono.ChCoordsysd(chrono.ChVector3d(c["x"], c["y"], 0.6), q))
         h.SetInitFwdVel(c["v"])
-        h.SetEngineType(veh.EngineModelType_SHAFTS)
-        h.SetTransmissionType(veh.TransmissionModelType_AUTOMATIC_SHAFTS)
+        if c["powertrain"] == "map":
+            h.SetEngineType(veh.EngineModelType_SIMPLE_MAP)
+            h.SetTransmissionType(veh.TransmissionModelType_AUTOMATIC_SIMPLE_MAP)
+        else:
+            h.SetEngineType(veh.EngineModelType_SHAFTS)
+            h.SetTransmissionType(veh.TransmissionModelType_AUTOMATIC_SHAFTS)
+        if c["chassis_collision"]:
+            h.SetChassisCollisionType(veh.CollisionType_PRIMITIVES)
         h.SetDriveType(veh.DrivelineTypeWV_AWD)
         if c["terrain"] == "rigid":
             h.SetTireType(veh.TireModelType_TMEASY)
@@ -78,6 +93,15 @@ class Sim:
         sys_ = h.GetSystem()
         sys_.SetCollisionSystemType(chrono.ChCollisionSystem.Type_BULLET)
         sys_.SetNumThreads(1, 1, 1)
+        if c["roof_kg"] > 0:
+            ch = h.GetChassisBody()
+            roof = chrono.ChBodyEasyBox(1.6, 1.4, 0.3, c["roof_kg"] / (1.6 * 1.4 * 0.3), True, False)
+            roof.SetPos(ch.GetPos() + ch.GetRot().Rotate(chrono.ChVector3d(0, 0, 1.6)))
+            roof.SetRot(ch.GetRot())
+            sys_.Add(roof)
+            link = chrono.ChLinkLockLock()
+            link.Initialize(roof, ch, chrono.ChFramed(roof.GetPos(), roof.GetRot()))
+            sys_.Add(link)
         if c["terrain"] == "rigid":
             terrain = veh.RigidTerrain(sys_)
             mat = chrono.ChContactMaterialSMC()
@@ -125,6 +149,7 @@ class Sim:
         com = v.GetCOMFrame().GetPos()
         p, vel, acc = v.GetPointLocation(com), v.GetPointVelocity(com), v.GetPointAcceleration(com)
         ex = v.GetRot().GetAxisX()
+        ey = v.GetRot().GetAxisY()
         ez = v.GetRot().GetAxisZ()
         yaw = math.atan2(ex.y, ex.x)
         c, s = math.cos(yaw), math.sin(yaw)
@@ -138,8 +163,15 @@ class Sim:
             "ax": c * acc.x + s * acc.y, "ay": -s * acc.x + c * acc.y, "rdot": self.chassis.GetAngAccParent().z,
             "delta": delta, "s_act": self.s_act, "v_target": self.v_target, "throttle": self.throttle, "brake": self.brake,
             "roll": roll, "sink": self.z0 - p.z, "wall": self.wall,
+            # wheel-lift study: body-frame roll / pitch rates, vertical speed, roll and pitch valid at large angles,
+            # tilt of the body's z axis from vertical, speed-loop integrator, tyre normal loads (FL, FR, RL, RR)
+            "vz": vel.z, "p": self.chassis.GetAngVelLocal().x, "q": self.chassis.GetAngVelLocal().y,
+            "roll_b": math.atan2(ey.z, ez.z), "pitch_b": math.atan2(-ex.z, math.hypot(ex.x, ex.y)),
+            "tilt": math.acos(max(-1.0, min(1.0, ez.z))), "integ": self.integ,
         }
-        obs["ok"] = all(math.isfinite(x) for x in obs.values()) and abs(roll) < 0.7
+        for i, (a, side) in enumerate((a, s) for a in (0, 1) for s in (veh.LEFT, veh.RIGHT)):
+            obs[f"fz{i}"] = v.GetTire(a, side).ReportTireForce(self.terrain).force.z
+        obs["ok"] = all(math.isfinite(x) for x in obs.values()) and abs(roll) < self.c["max_roll"]
         return obs
 
     def step(self, s_cmd: float, a_cmd: float) -> dict:
@@ -193,6 +225,13 @@ def main() -> int:
                 send(sim.reset(msg.get("cfg", {})))
             elif op == "step":
                 send(sim.step(msg["s_cmd"], msg["a_cmd"]))
+            elif op == "rollout":
+                obs0, rows = sim.reset(msg.get("cfg", {})), []
+                for s_cmd, a_cmd in msg["actions"]:
+                    rows.append(sim.step(s_cmd, a_cmd))
+                    if not rows[-1]["ok"]:
+                        break
+                send({"obs0": obs0, "obs": rows})
             elif op == "info":
                 send(sim.info())
             elif op == "close":

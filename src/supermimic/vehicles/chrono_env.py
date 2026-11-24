@@ -67,6 +67,11 @@ class ChronoPool:
     def step(self, s_cmd, a_cmd, ids=None) -> list[dict]:
         return self._all([{"op": "step", "s_cmd": float(s), "a_cmd": float(a)} for s, a in zip(s_cmd, a_cmd)], ids)
 
+    def rollout(self, jobs: list[tuple[dict, list]], ids=None) -> list[dict]:
+        """One (cfg, actions) job per worker: reset with cfg, apply the actions, return {"obs0", "obs"} (cut where the
+        observation stops being ok). Deterministic, so repeated rollouts serve as finite differences."""
+        return self._all([{"op": "rollout", "cfg": c, "actions": [list(map(float, a)) for a in acts]} for c, acts in jobs], ids)
+
     def info(self, ids=None) -> list[dict]:
         ids = list(range(self.n)) if ids is None else list(ids)
         return self._all([{"op": "info"}] * len(ids), ids)

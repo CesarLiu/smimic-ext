@@ -92,3 +92,18 @@ def test_chrono_pool_runs_and_turns_left():
         for o in obs:
             assert o["ok"] and o["vx"] > 2.0 and o["delta"] > 0.15 and o["r"] > 0.1  # positive command: left turn
             assert math.isfinite(o["ay"]) and abs(o["t"] - 2.3) < 1e-6  # settle 1.5 s + 40 control steps
+
+
+@pytest.mark.skipif(not os.environ.get("SUPERMIMIC_CHRONO_PYTHON"), reason="needs a PyChrono interpreter")
+def test_chrono_rollout_is_deterministic_and_reports_wheel_loads():
+    from supermimic.vehicles.chrono_env import ChronoPool
+
+    cfg = {"terrain": "rigid", "v": 12.0, "roof_kg": 800.0, "powertrain": "map", "chassis_collision": True, "max_roll": 1.2, "settle": 1.0}
+    acts = [[0.8, 0.0]] * 25 + [[-0.9, 0.0]] * 25
+    with ChronoPool(2) as pool:
+        a, b = pool.rollout([(cfg, acts), (cfg, acts)])
+    assert len(a["obs"]) == len(b["obs"]) > 0
+    assert all(x[k] == y[k] for x, y in zip(a["obs"], b["obs"]) for k in x if k != "wall")  # replays are exact
+    o = a["obs0"]
+    assert 2.0e4 < sum(o[f"fz{i}"] for i in range(4)) < 4.0e4  # about (2573 + 800) kg x g on four tyres
+    assert all(k in o for k in ("p", "q", "vz", "roll_b", "pitch_b", "tilt", "integ"))
