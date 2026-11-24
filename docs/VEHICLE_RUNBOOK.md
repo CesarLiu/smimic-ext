@@ -22,7 +22,7 @@
 | 方向调整 | 复盘后改做越野、可变形地面上的高速驾驶（Project Chrono），先测“样本贵”关卡 G0 | ✅ G0 通过：4 核 CPU 上 Chrono HMMWV 硬地面 562、SCM 可变形地面 379（网格 0.10 m）/ 177（0.05 m）控制步/s，比本仿真器慢 155 / 231 / 494 倍。贵的主要是多体模型本身；同样硬件下 SuperMimic 的墙钟优势最多是样本效率的倍数（3–4 倍）。❌ G1 不通过：按地面辨识轮胎的单轨 NMPC 在软土、硬土上和硬地面上一样准（误差比 0.90–1.23，无终止），只在硬土 7 m/s 的 S 弯上（接近土壤侧向极限）误差到 3.4 倍 | §11.4，第 10 步，`docs/results/vehicle_chrono_*` |
 | 精度上限 | 加大回放缓冲区、3 个种子（2 维） | ❌ 缓冲区 300 → 2000 步没有用（5400 次迭代时 0.71 ± 0.14 对 0.63 ± 0.12）；2 维也大幅摆动，种子间差异 0.29–0.76；精度上限远低于 PPO（0.96）。之前的单种子比较都在噪声以内 | §11.7，第 11 步，`docs/results/vehicle_replay_multiseed.json` |
 | ξ 梯度检查 | 世界模型对附着、轮胎刚度、质量、质心的梯度（协同设计、辨识、压力测试的前提） | ✅ 轮胎刚度、质心的闭环梯度可用，沿模型梯度改参数在 79–95% 的情况下真实回报变好（随机方向约 50%）；质量、轮胎刚度的开环梯度近乎完美；μ 在利用率 ≥ 0.6 时也好 | §11.8，第 11 步，`docs/results/vehicle_xi_gradient_check.json` |
-| 接触切换 | 两轮离地附近的世界模型与防侧翻控制（Chrono 多体） | ✅ 世界模型学得会两轮离地（梯度余弦 0.94–0.95，翻滚后变差）；SuperMimic 用约 13 万 Chrono 步学出的控制器跟踪比经典限速准 3–5 倍、总回报持平（冲出车道 3/16 对 1/16）；同样预算的 PPO 16/16 冲出车道，3 倍预算时仍 12/16。可行性结论见 §11.13 | §11.12、§11.13，第 14 步，`docs/results/vehicle_chrono_lift_check.json`、`vehicle_chrono_rollover_*` |
+| 接触切换 | 两轮离地附近的世界模型与防侧翻控制（Chrono 多体） | ✅ 世界模型学得会两轮离地（梯度余弦 0.94–0.95，翻滚后变差）；SuperMimic 用约 13 万 Chrono 步学出的控制器跟踪比经典限速准 3–5 倍、总回报持平（冲出车道 3/16 对 1/16）；同样预算的 PPO（原始加三组调参）都远不如它；但带侧倾模型的 MPC 全面更好（回报 409、0 失败）。可行性结论见 §11.13 | §11.12、§11.13，第 14 步，`docs/results/vehicle_chrono_lift_check.json`、`vehicle_chrono_rollover_*` |
 
 ## 环境
 
@@ -559,6 +559,10 @@ env -u PYTHONPATH uv run python scripts/vehicle/chrono_lift_check.py --cache log
 env -u PYTHONPATH uv run python scripts/vehicle/chrono_rollover_control.py --lift-data logs/chrono_lift_data.npz --out logs/chrono_rollover_control.json
 # 同样预算的 PPO（13.3 万步约 25 分钟；40 万步约 75 分钟）
 env -u PYTHONPATH uv run python scripts/vehicle/chrono_rollover_ppo.py --lift-data logs/chrono_lift_data.npz --steps 400000 --eval-every 33000 --out logs/chrono_rollover_ppo.json
+# 上面是调参后的默认值（C1）；§11.12 第一次 PPO 运行对应 --std-steer 0.1 --std-accel 0.3 --lr 3e-4 --clip 0.2 --target-kl 1e9 --value-warmup 0 --reward-scale 1
+#（那次的价值函数和策略共用一个学习率 3e-4，现在价值函数用 3 倍学习率，所以不是逐位复现）
+# 带侧倾模型的 MPC（辨识 + 评估，每个 LTR 权重约 2–5 分钟）
+env -u PYTHONPATH uv run python scripts/vehicle/chrono_roll_mpc.py --lift-data logs/chrono_lift_data.npz --w-ltr 100 500 2000 --out logs/chrono_roll_mpc.json
 ```
 
 - A 打印每种工况（四轮着地、单轮离地、两轮离地、翻滚中、离地 / 落地切换）的 8 步误差，以及 k = 5、15 步时转向梯度与 Chrono 重放差分的一致性；
