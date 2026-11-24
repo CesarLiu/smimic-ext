@@ -185,6 +185,8 @@ def drive(pool, cases, controller, policy=None, wm=None, noise=0.0, rng=None, ma
     """cases: list of (path (P, 4) at the origin, v_ref); one Chrono episode each, len(cases) <= workers.
     Returns per-episode logs (states, actions, poses, progress, rewards, metrics)."""
     n = len(cases)
+    if hasattr(controller, "reset"):
+        controller.reset(n)
     obs = pool.reset([{**LIFT_CFG, "v": v} for _, v in cases], ids=range(n))
     paths = [placed(p, o["x"], o["y"], o["yaw"]) for (p, _), o in zip(cases, obs)]
     tp = torch.as_tensor(np.stack([np.pad(p, ((0, 2400 - len(p)), (0, 0)), mode="edge") for p in paths]), dtype=torch.float32)
@@ -201,8 +203,10 @@ def drive(pool, cases, controller, policy=None, wm=None, noise=0.0, rng=None, ma
             if hint[i] >= len(cases[i][0]) - int(70 / DS):  # reached the end of the manoeuvre (+ lead-out)
                 active.remove(i)
                 continue
-            if controller in ("pure_pursuit", "ssf_limiter"):
+            if isinstance(controller, str) and controller in ("pure_pursuit", "ssf_limiter"):
                 a = baseline_action(controller, o, path, hint[i], cases[i][1])
+            elif hasattr(controller, "act"):  # a model-based controller object (chrono_roll_mpc.RollMPC)
+                a = controller.act(i, o, path, hint[i], cases[i][1], a_prev[i])
             else:
                 with torch.no_grad():
                     x = torch.tensor([[o[k] for k in STATE]], dtype=torch.float32)

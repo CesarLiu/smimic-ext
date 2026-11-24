@@ -3,7 +3,9 @@ starting point (a behaviour clone of the SSF speed limiter), with a budget of Ch
 used there (its random-excitation data plus its task data) or a multiple of it (VEHICLE_PROPOSAL.md section 11.12).
 
 Same observation features, reward, action bounds, training paths and speeds, and the same held-out evaluation; the
-policy's mean is the same network, with a learned Gaussian standard deviation per action.
+policy's mean is the same network, with a learned Gaussian standard deviation per action. Tuning flags protect the
+cloned start: small initial exploration, value-function warm-up with the policy frozen, approximate-KL early stopping,
+separate policy / value learning rates, scaled rewards.
 
     SUPERMIMIC_CHRONO_PYTHON=chrono_env/bin/python PYTHONPATH=src python scripts/vehicle/chrono_rollover_ppo.py \\
         --lift-data logs/chrono_lift_data.npz --steps 140000 --out docs/results/vehicle_chrono_rollover_ppo.json
@@ -53,6 +55,15 @@ def parse(argv=None):
     ap.add_argument("--lift-data", required=True)
     ap.add_argument("--steps", type=int, default=140000, help="Chrono control steps of PPO training")
     ap.add_argument("--rollout", type=int, default=512, help="steps per worker between PPO updates")
+    # tuning (section 11.12): the first run (std 0.1 / 0.3, lr 3e-4, clip 0.2, no value warm-up) wrecked the clone
+    ap.add_argument("--std-steer", type=float, default=0.05, help="initial exploration std of the steering command")
+    ap.add_argument("--std-accel", type=float, default=0.15, help="initial exploration std of the acceleration command [m/s^2]")
+    ap.add_argument("--lr", type=float, default=1e-4, help="policy learning rate (the value function uses 3x)")
+    ap.add_argument("--clip", type=float, default=0.1)
+    ap.add_argument("--epochs", type=int, default=5)
+    ap.add_argument("--target-kl", type=float, default=0.01, help="stop an update's epochs once the approximate KL exceeds 1.5x this")
+    ap.add_argument("--value-warmup", type=int, default=3, help="first updates train only the value function (policy frozen)")
+    ap.add_argument("--reward-scale", type=float, default=0.1, help="rewards are multiplied by this for the value / advantage targets")
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--eval-paths", type=int, default=8)
     ap.add_argument("--eval-every", type=int, default=35000)
@@ -159,9 +170,11 @@ def main(argv=None) -> int:
         log(f"behaviour clone: rolled {ev['rolled']}, off path {ev['off_path']}, return {ev['mean_return']:.1f}, |lat| {ev['mean_abs_lat']:.3f}, speed {ev['mean_speed']:.1f}")
         report["curve"].append({"ppo_steps": 0, "bc_steps": bc_steps, **{k: v for k, v in ev.items() if k != "per_episode"}})
 
-        log_std = nn.Parameter(torch.log(torch.tensor([0.1, 0.3])))
+        log_std = nn.Parameter(torch.log(torch.tensor([args.std_steer, args.std_accel])))
         value = nn.Sequential(nn.Linear(obs_dim, 256), nn.ELU(), nn.Linear(256, 256), nn.ELU(), nn.Linear(256, 1))
-        opt = torch.optim.Adam([*policy.parameters(), log_std, *value.parameters()], lr=3e-4)
+        popt_ppo = torch.optim.Adam([*policy.parameters(), log_std], lr=args.lr)
+        vopt = torch.optim.Adam(value.parameters(), lr=3 * args.lr)
+        n_update, kl_stops = 0, 0
         env = Env(pool, args.workers, norm, train_rng)
         ob = env.features()
         steps, next_eval = 0, args.eval_every
@@ -177,7 +190,7 @@ def main(argv=None) -> int:
                 r, dn = env.step(a.tolist())
                 buf["ob"].append(ob)
                 buf["a"].append(a)
-                buf["r"].append(torch.tensor(r))
+                buf["r"].append(torch.tensor(r) * args.reward_scale)
                 buf["d"].append(torch.tensor(dn, dtype=torch.float32))
                 ob = env.features()
                 steps += args.workers
@@ -194,24 +207,38 @@ def main(argv=None) -> int:
             O, A, LP = torch.cat(buf["ob"]), torch.cat(buf["a"]), torch.cat(buf["lp"])
             ADV, RET = adv.reshape(-1), ret.reshape(-1)
             ADV = (ADV - ADV.mean()) / (ADV.std() + 1e-8)
-            for _ in range(5):
+            train_policy = n_update >= args.value_warmup
+            stop = False
+            for _ in range(args.epochs):
                 perm = torch.randperm(len(O))
                 for mb in perm.split(512):
-                    dist = torch.distributions.Normal(policy(O[mb]), log_std.exp())
-                    ratio = (dist.log_prob(A[mb]).sum(-1) - LP[mb]).exp()
-                    pl = -torch.min(ratio * ADV[mb], ratio.clamp(0.8, 1.2) * ADV[mb]).mean()
                     vl = ((value(O[mb]).squeeze(-1) - RET[mb]) ** 2).mean()
-                    loss = pl + 0.5 * vl
-                    opt.zero_grad()
-                    loss.backward()
-                    nn.utils.clip_grad_norm_([*policy.parameters(), log_std, *value.parameters()], 1.0)
-                    opt.step()
+                    vopt.zero_grad()
+                    vl.backward()
+                    nn.utils.clip_grad_norm_(value.parameters(), 1.0)
+                    vopt.step()
+                    if not train_policy or stop:
+                        continue
+                    dist = torch.distributions.Normal(policy(O[mb]), log_std.exp())
+                    new_lp = dist.log_prob(A[mb]).sum(-1)
+                    if float((LP[mb] - new_lp).mean()) > 1.5 * args.target_kl:  # approximate KL to the rollout policy
+                        stop = True
+                        kl_stops += 1
+                        continue
+                    ratio = (new_lp - LP[mb]).exp()
+                    pl = -torch.min(ratio * ADV[mb], ratio.clamp(1 - args.clip, 1 + args.clip) * ADV[mb]).mean()
+                    popt_ppo.zero_grad()
+                    pl.backward()
+                    nn.utils.clip_grad_norm_([*policy.parameters(), log_std], 1.0)
+                    popt_ppo.step()
+            n_update += 1
             if steps >= next_eval or steps >= args.steps:
                 next_eval += args.eval_every
                 ev, _ = evaluate(pool, eval_cases, "supermimic", ev_args, policy=policy, wm=norm)
                 env = Env(pool, args.workers, norm, train_rng)  # evaluation reset the workers
                 ob = env.features()
-                row = {"ppo_steps": steps, "bc_steps": bc_steps, **{k: v for k, v in ev.items() if k != "per_episode"}}
+                row = {"ppo_steps": steps, "bc_steps": bc_steps, "updates": n_update, "kl_stops": kl_stops, "std": log_std.exp().tolist(),
+                       **{k: v for k, v in ev.items() if k != "per_episode"}}
                 report["curve"].append(row)
                 report["final"] = ev
                 log(f"PPO {steps} steps: rolled {ev['rolled']}/{ev['episodes']}, off path {ev['off_path']}, return {ev['mean_return']:.1f}, "
