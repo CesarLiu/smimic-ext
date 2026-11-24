@@ -1,0 +1,98 @@
+{
+ "1  稳态回转，方向盘缓慢加大（μ = 0.8，20 m/s）": {
+  "基准车（本身略推头）": {
+   "duration_s": 6.5,
+   "max_abs_sideslip_deg": 2.523237825516176,
+   "yaw_change_deg": 125.30844215809422,
+   "course_change_deg": 123.9724267012072,
+   "spun": false,
+   "max_front_use": 1.0722573846578598,
+   "max_rear_use": 1.0273102670907974,
+   "final_speed": 19.517104220132342
+  },
+  "推头型：质心前移 0.3 m，前轴侧倾刚度 +20%": {
+   "duration_s": 6.5,
+   "max_abs_sideslip_deg": 0.8388894172305909,
+   "yaw_change_deg": 121.33558471384322,
+   "course_change_deg": 121.00600792844342,
+   "spun": false,
+   "max_front_use": 1.0684549063444138,
+   "max_rear_use": 0.9293827414512634,
+   "final_speed": 19.500309205853156
+  },
+  "甩尾型：质心后移 0.45 m，后轴侧倾刚度 +20%": {
+   "duration_s": 6.5,
+   "max_abs_sideslip_deg": 117.35689015701881,
+   "yaw_change_deg": 212.4893522469881,
+   "course_change_deg": 95.13243313773776,
+   "spun": true,
+   "max_front_use": 1.0741470754146576,
+   "max_rear_use": 1.0487636178731918,
+   "final_speed": 4.382926353489933
+  }
+ },
+ "2  弯中制动，ABS 关闭（μ = 0.8，20 m/s，2 s 时开始制动）": {
+  "不制动": {
+   "duration_s": 6.0,
+   "max_abs_sideslip_deg": 0.9657805441589377,
+   "yaw_change_deg": 112.4546173333556,
+   "course_change_deg": 111.53253617119424,
+   "spun": false,
+   "max_front_use": 0.8812867105007172,
+   "max_rear_use": 0.8442369848489761,
+   "final_speed": 19.86702713383651
+  },
+  "轻刹 -2 m/s²": {
+   "duration_s": 6.0,
+   "max_abs_sideslip_deg": 163.94911006234452,
+   "yaw_change_deg": 230.3190800663853,
+   "course_change_deg": 66.34082927302752,
+   "spun": true,
+   "max_front_use": 1.080547720193863,
+   "max_rear_use": 1.0614800453186035,
+   "final_speed": 3.3753956397042275
+  },
+  "急刹 -8 m/s²": {
+   "duration_s": 4.9799999999999995,
+   "max_abs_sideslip_deg": 1.5086831101891574,
+   "yaw_change_deg": 61.704822818921805,
+   "course_change_deg": 63.1772525991227,
+   "spun": false,
+   "max_front_use": 1.1215423047542572,
+   "max_rear_use": 1.0083107650279999,
+   "final_speed": 1.4644457657147716
+  }
+ },
+ "3  湿滑路面换道（μ = 0.5，20 m/s）": {
+  "幅值 0.04 rad": {
+   "duration_s": 7.0,
+   "max_abs_sideslip_deg": 1.1390173513992325,
+   "yaw_change_deg": -0.32458494591898596,
+   "course_change_deg": -0.3802387835950822,
+   "spun": false,
+   "max_front_use": 0.9136270880699158,
+   "max_rear_use": 0.91978520154953,
+   "final_speed": 19.999780529593753
+  },
+  "幅值 0.07 rad，侧滑后松油门": {
+   "duration_s": 7.0,
+   "max_abs_sideslip_deg": 35.6059018792944,
+   "yaw_change_deg": -87.7056389249545,
+   "course_change_deg": -52.09980649468836,
+   "spun": false,
+   "max_front_use": 1.0422641038894653,
+   "max_rear_use": 1.0223629474639893,
+   "final_speed": 14.222130583974792
+  },
+  "幅值 0.07 rad，侧滑中继续给油": {
+   "duration_s": 7.0,
+   "max_abs_sideslip_deg": 178.55172781042867,
+   "yaw_change_deg": -313.86626166576974,
+   "course_change_deg": -26.765362869941942,
+   "spun": true,
+   "max_front_use": 1.0422641038894653,
+   "max_rear_use": 1.0223629474639893,
+   "final_speed": 16.318229182807706
+  }
+ }
+}
