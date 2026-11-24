@@ -116,7 +116,10 @@ def render(data, out: Path, fps: int = 25):
                 ax.add_collection3d(Poly3DCollection(box_faces(np.zeros(3), np.eye(3), ((cx - 0.2, cx + 0.2), (c[1] - 4, c[1] + 4), (0, run["curb"]))),
                                                      facecolor="0.55", edgecolor="0.3", lw=0.5))
             R = rot(r["axes"])
-            ax.add_collection3d(Poly3DCollection(box_faces(c, R, BODY), facecolor=COLORS[i], edgecolor="0.2", lw=0.6, alpha=0.55))
+            # faces: rear, front, right, left, bottom, top (box_faces order); the front face is gold so the heading shows
+            faces = box_faces(c, R, BODY)
+            ax.add_collection3d(Poly3DCollection(faces, facecolor=[COLORS[i], "gold", COLORS[i], COLORS[i], COLORS[i], COLORS[i]],
+                                                 edgecolor="0.2", lw=0.6, alpha=0.6))
             if r["roof"] is not None:
                 lx, ly, lz, _ = roof_dims
                 ax.add_collection3d(Poly3DCollection(box_faces(np.array(r["roof"]["pos"]), rot(r["roof"]["axes"]),
@@ -143,7 +146,7 @@ def render(data, out: Path, fps: int = 25):
         axr.set_xlabel("时间 [s]" + ("（从开始打方向算起）" if name == "fishhook" else "（从开始侧滑算起）"))
         axr.grid(alpha=0.3)
         axr.legend(loc="upper left", fontsize=8.5, ncol=3)
-        axr.text(0.995, 0.04, "粗线：同侧两个车轮都离地（垂向力 < 100 N）；红色车轮：离地；±90°：侧翻", transform=axr.transAxes, ha="right", fontsize=8.5, color="0.3")
+        axr.text(0.995, 0.04, "金色面：车头。粗线：同侧两个车轮都离地（垂向力 < 100 N）；红色车轮：离地；±90°：侧翻", transform=axr.transAxes, ha="right", fontsize=8.5, color="0.3")
 
     out, writer = writer_for(out, fps)
     anim = animation.FuncAnimation(fig, draw, frames=frames, interval=1000 / fps)

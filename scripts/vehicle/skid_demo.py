@@ -37,7 +37,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from render_scurve import car_outline, writer_for
+from render_scurve import car_nose, car_outline, writer_for
 
 from supermimic.vehicles.dynamics import (
     DELTA,
@@ -188,10 +188,12 @@ def render(results, params, out: Path, fps: int = 25):
                 q = rows[g]
                 ax_map.add_patch(Polygon(car_outline(q["x"], q["y"], q["yaw"], q["delta"], geo)[0], closed=True, facecolor="none",
                                          edgecolor=c["color"], alpha=0.35, lw=0.8))
+                ax_map.add_patch(Polygon(car_nose(q["x"], q["y"], q["yaw"], geo), closed=True, facecolor=c["color"], alpha=0.35, lw=0))
             ax_map.plot([q["x"] for q in rows[: j + 1]], [q["y"] for q in rows[: j + 1]], color=c["color"], lw=2,
                         label=f"{c['label']}   侧偏角 {r['beta']:+.0f}°  车速 {r['speed']:.0f} m/s")
             body, wheels = car_outline(r["x"], r["y"], r["yaw"], r["delta"], geo)
             ax_map.add_patch(Polygon(body, closed=True, facecolor=c["color"], alpha=0.35, edgecolor=c["color"], lw=1.5))
+            ax_map.add_patch(Polygon(car_nose(r["x"], r["y"], r["yaw"], geo), closed=True, facecolor="white", edgecolor="k", lw=0.8, zorder=5))
             for w, u, kap in zip(wheels, r["uw"], r["kappa"]):
                 col = "black" if kap < -0.6 else cmap(min(1.0, u / 1.1))
                 ax_map.add_patch(Polygon(w, closed=True, facecolor=col, edgecolor="0.2", lw=0.5))
@@ -200,7 +202,7 @@ def render(results, params, out: Path, fps: int = 25):
                 ax_map.annotate("", xy=(r["x"] + 4 * math.cos(h), r["y"] + 4 * math.sin(h)), xytext=(r["x"], r["y"]),
                                 arrowprops={"arrowstyle": "->", "color": "k", "lw": 1.2})
         ax_map.legend(loc="upper left", fontsize=9, framealpha=0.85)
-        ax_map.text(0.99, 0.01, "车轮颜色：绿 → 红 = 用掉的附着；黑 = 抱死。箭头：行驶方向。细框：每 0.5 s 的车身位置", transform=ax_map.transAxes,
+        ax_map.text(0.99, 0.01, "白色三角：车头。箭头：行驶方向（两者夹角 = 侧偏角）。车轮：绿 → 红 = 用掉的附着，黑 = 抱死。细框：每 0.5 s 的车身", transform=ax_map.transAxes,
                     ha="right", va="bottom", fontsize=8.5, color="0.3")
         T = max(c["rows"][-1]["t"] for c in sc["cars"])
         for c in sc["cars"]:

@@ -109,6 +109,15 @@ def car_outline(x, y, yaw, delta, p, delta_r=0.0):
     return body, wheels
 
 
+def car_nose(x, y, yaw, p):
+    """A triangle in the front of the body pointing forward: shows which way the car faces (it differs from the
+    direction of travel when the car slides)."""
+    c, s = math.cos(yaw), math.sin(yaw)
+    front = p.a + 0.85
+    pts = [(front + 0.6, 0.0), (front - 1.6, 0.95), (front - 1.6, -0.95)]  # pokes out of the body so it reads at small scale
+    return [(x + c * u - s * v, y + s * u + c * v) for u, v in pts]
+
+
 def writer_for(path: Path, fps: int):
     from matplotlib import animation, rcParams
 
@@ -175,6 +184,7 @@ def render(segments, params, args, out: Path) -> Path:
             ax_cam.plot(r["x"][: i + 1], r["y"][: i + 1], color=COLORS[m], lw=2, alpha=0.8, zorder=2)
             body, wheels = car_outline(r["x"][i], r["y"][i], r["yaw"][i], r["delta"][i], params, r.get("delta_r", [0.0] * (i + 1))[i])
             ax_cam.add_patch(Polygon(body, closed=True, fc=COLORS[m], ec="k", lw=1, alpha=0.45, zorder=3))
+            ax_cam.add_patch(Polygon(car_nose(r["x"][i], r["y"][i], r["yaw"][i], params), closed=True, fc="white", ec="k", lw=0.8, zorder=4))
             for w in wheels:
                 ax_cam.add_patch(Polygon(w, closed=True, fc="k", ec="k", zorder=4))
             ended = r["terminated"] and k >= len(r["x"]) - 1
