@@ -538,6 +538,16 @@ env -u PYTHONPATH uv run python scripts/vehicle/skid_demo.py --out logs/skid_dem
 - 视频左边是俯视图（每 0.5 s 一个车身残影；车轮颜色表示用掉的附着，黑色表示抱死；箭头是行驶方向），右边是侧偏角、实际与按转角应有的横摆角速度、前后轴的附着利用；
 - 不经过环境、没有学习，只是脚本驾驶员驱动动力学；视频里的中文需要系统装有中文字体（例如文泉驿），否则显示为方框。
 
+翻车（Chrono，第 10 步的 PyChrono 环境；仿真约 20 秒，渲染约 2 分钟）：
+
+```bash
+chrono_env/bin/python -I scripts/vehicle/chrono_rollover.py --out logs/rollover.json
+env -u PYTHONPATH uv run python scripts/vehicle/render_rollover.py --data logs/rollover.json --out logs/rollover.mp4
+```
+
+- 鱼钩测试（原车、车顶载重 800 kg 低速、同样载重高速）和绊倒（冰面横滑：无障碍、4 m/s 撞路肩、8 m/s 撞路肩）；
+- 终端打印每次运行的最大倾斜、是否翻倒、同侧两轮离地的时间；视频里红色车轮表示离地，下方是车身侧倾角，粗线段表示同侧两轮离地。
+
 ### 14. 下一步（E3/E4）
 
 - [x] E1 的关卡按 §3.9 修订（2026-11-04）

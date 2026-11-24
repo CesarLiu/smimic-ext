@@ -1,0 +1,98 @@
+{
+ "note": "VEHICLE_PROPOSAL.md section 11.11, scripts/vehicle/chrono_rollover.py (Chrono HMMWV); per run: largest tilt of the chassis z axis from vertical, rolled over (> 90 deg), time with both wheels of one side below 100 N, first such time, speed at the start (fishhook: when steering begins; trip: sideways speed).",
+ "roof_box": [
+  1.6,
+  1.4,
+  0.3,
+  1.6
+ ],
+ "scenarios": {
+  "fishhook": {
+   "ground": "rigid, mu 0.9, TMeasy tyres",
+   "runs": [
+    {
+     "label": "原车，16 m/s",
+     "v0": 16.0,
+     "roof_kg": 0.0,
+     "summary": {
+      "max_tilt_deg": 2.05,
+      "rolled_over": false,
+      "two_wheel_lift_s": 0.0,
+      "first_two_wheel_lift_t": null,
+      "speed_at_start": 16.58
+     }
+    },
+    {
+     "label": "车顶载重 800 kg，9 m/s",
+     "v0": 9.0,
+     "roof_kg": 800.0,
+     "summary": {
+      "max_tilt_deg": 5.26,
+      "rolled_over": false,
+      "two_wheel_lift_s": 0.4,
+      "first_two_wheel_lift_t": 1.44,
+      "speed_at_start": 9.672
+     }
+    },
+    {
+     "label": "车顶载重 800 kg，16 m/s",
+     "v0": 16.0,
+     "roof_kg": 800.0,
+     "summary": {
+      "max_tilt_deg": 177.72,
+      "rolled_over": true,
+      "two_wheel_lift_s": 3.9,
+      "first_two_wheel_lift_t": 0.34,
+      "speed_at_start": 16.732
+     }
+    }
+   ]
+  },
+  "trip": {
+   "ground": "ice, mu 0.15, rigid tyres",
+   "curb_x": 6.0,
+   "curb_size": [
+    0.4,
+    30.0
+   ],
+   "runs": [
+    {
+     "label": "无路肩，横滑 8 m/s",
+     "v_side": 8.0,
+     "curb": 0.0,
+     "summary": {
+      "max_tilt_deg": 0.46,
+      "rolled_over": false,
+      "two_wheel_lift_s": 0.0,
+      "first_two_wheel_lift_t": null,
+      "speed_at_start": 7.999
+     }
+    },
+    {
+     "label": "20 cm 路肩，横滑 4 m/s",
+     "v_side": 4.0,
+     "curb": 0.2,
+     "summary": {
+      "max_tilt_deg": 1.14,
+      "rolled_over": false,
+      "two_wheel_lift_s": 0.04,
+      "first_two_wheel_lift_t": 1.84,
+      "speed_at_start": 3.999
+     }
+    },
+    {
+     "label": "20 cm 路肩，横滑 8 m/s",
+     "v_side": 8.0,
+     "curb": 0.2,
+     "summary": {
+      "max_tilt_deg": 179.99,
+      "rolled_over": true,
+      "two_wheel_lift_s": 2.36,
+      "first_two_wheel_lift_t": 0.68,
+      "speed_at_start": 7.999
+     }
+    }
+   ]
+  }
+ }
+}
