@@ -49,3 +49,25 @@ def test_swing_coupling_changes_plan():
              "slosh": {"coef_ay_roll_rate_swing_swingrate": [-1.2, 10.0, 0.5, -12.0, -1.0]}}
     a0, a1 = _act(SloshMPC(ident), path, 0.0), _act(SloshMPC(ident), path, 0.3)
     assert np.isfinite(a0).all() and np.isfinite(a1).all() and not np.allclose(a0, a1, atol=1e-3)
+
+
+def test_swing_observer_tracks_simulated_swing():
+    """On data from the observer's own (linear) model, the estimate converges to the true swing within ~2 s."""
+    from chrono_roll_mpc import SwingObserver
+
+    cr, cs = [0.56, -95.0, -6.0, 4.94, 0.32], [0.30, 0.0, 0.0, -14.3, -1.34]  # stable: roll damping, no roll-to-swing coupling
+    ident = {"roll": {"coef_ay_roll_rate_swing_swingrate": cr, "resid_std": 0.05}, "slosh": {"coef_ay_roll_rate_swing_swingrate": cs, "resid_std": 0.05}}
+    ob = SwingObserver(ident)
+    ob.reset()
+    dt, th, thd, roll, p = 0.02, 0.15, 0.0, 0.0, 0.0  # starts swinging; the observer starts at zero
+    errs, ths = [], []
+    for k in range(400):
+        ay = 3.0 * np.sin(2 * np.pi * 0.4 * k * dt)
+        est = ob.update(ay, roll, p)
+        errs.append(est[0] - th)
+        ths.append(th)
+        pdot = cr[0] * ay + cr[1] * roll + cr[2] * p + cr[3] * th + cr[4] * thd
+        thdd = cs[0] * ay + cs[1] * roll + cs[2] * p + cs[3] * th + cs[4] * thd
+        roll, p, th, thd = roll + dt * p, p + dt * pdot, th + dt * thd, thd + dt * thdd
+    late = np.abs(errs[100:])
+    assert late.mean() < 0.1 * np.abs(ths[100:]).mean() + 1e-3

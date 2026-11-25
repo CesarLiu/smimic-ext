@@ -72,6 +72,8 @@ def parse(argv=None):
     ap.add_argument("--wm-history", type=int, default=2, help="states of history the world model sees (16 for the sloshing payload)")
     ap.add_argument("--slosh-length", type=float, default=0.0, help="sloshing payload: pendulum length [m] (0 = rigid roof load); section 11.14")
     ap.add_argument("--slosh-damping", type=float, default=500.0, help="sloshing payload: pendulum damping [N m s/rad]")
+    ap.add_argument("--wm-ensemble", type=int, default=1, help="independently initialised world models; imagination uses their mean (section 10.6)")
+    ap.add_argument("--unc-penalty", type=float, default=0.0, help="lambda: subtract lambda x max step reward x member disagreement in imagination")
     return ap.parse_args(argv)
 
 
@@ -274,7 +276,31 @@ def evaluate(pool, cases, controller, args, **kw):
 # ---------------------------------------------------------------------- learning
 
 
+R_MAX = 1.9  # largest per-step reward: tracking 1 + heading 0.3 + speed 0.6
+
+
+class WMEnsemble(nn.Module):
+    """Independently initialised ``LiftWM`` members (section 10.6). Imagination steps with their mean next state; the
+    disagreement (variance across members of the normalised increments, averaged over components) is the uncertainty
+    that ``imagine`` penalises."""
+
+    def __init__(self, members):
+        super().__init__()
+        self.members = nn.ModuleList(members)
+        m = members[0]
+        self.hist, self.mean, self.std, self.dstd = m.hist, m.mean, m.std, m.dstd
+
+    def step_hist_spread(self, Xh, Ah):
+        P = torch.stack([m.step_hist(Xh, Ah) for m in self.members])
+        return P.mean(0), ((P - Xh[-1]) / self.dstd).var(0, unbiased=False).mean(-1)
+
+    def step_hist(self, Xh, Ah):
+        return self.step_hist_spread(Xh, Ah)[0]
+
+
 def wm_update(wm, opt, eps, k, n, rng):
+    if isinstance(wm, WMEnsemble):  # each member on its own batches, with its own optimiser
+        return float(np.mean([wm_update(m, o, eps, k, n, rng) for m, o in zip(wm.members, opt)]))
     idx = windows(eps, k, wm.hist)
     std = wm.std
     loss = None
@@ -294,9 +320,10 @@ def to_episodes(logs):
     return [{"x": np.array(L["x"]), "actions": np.array(L["a"]) if L["a"] else np.zeros((0, 2)), "tilt": np.array(L["tilt"])} for L in logs if len(L["a"]) >= 12]
 
 
-def imagine(wm, policy, starts, paths, H):
+def imagine(wm, policy, starts, paths, H, unc_penalty: float = 0.0):
     """starts: Xh (hist, n, X) states up to now, Ah (hist - 1, n, 2) the actions before now (oldest first), pose, progress,
-    path ids, reference speeds."""
+    path ids, reference speeds. With an ensemble and ``unc_penalty`` > 0, each step's reward loses
+    unc_penalty x R_MAX x the members' disagreement."""
     Xh, Ah, pose, s, pid, v_ref = starts
     x, a_prev = Xh[-1], Ah[-1]
     c = torch.ones(x.shape[0])
@@ -304,7 +331,10 @@ def imagine(wm, policy, starts, paths, H):
     for _ in range(H):
         ob, _, _ = features(x, pose, s, pid, v_ref, a_prev, paths, wm)
         a = policy(ob)
-        x1 = wm.step_hist(Xh, torch.cat([Ah, a[None]]))
+        if unc_penalty > 0:
+            x1, spread = wm.step_hist_spread(Xh, torch.cat([Ah, a[None]]))
+        else:
+            x1, spread = wm.step_hist(Xh, torch.cat([Ah, a[None]])), 0.0
         Xh = torch.cat([Xh[1:], x1[None]])
         Ah = torch.cat([Ah[1:], a[None]])
         vx, vy, r = x1[:, 0], x1[:, 1], x1[:, 3]
@@ -316,7 +346,7 @@ def imagine(wm, policy, starts, paths, H):
         pose = torch.stack([X, Y, yaw], -1)
         _, e_lat, e_head = features(x1, pose, s, pid, v_ref, a, paths, wm)
         rew, fail, _ = reward(x1, a, a_prev, e_lat, e_head, v_ref)
-        J = J + c * rew
+        J = J + c * (rew - unc_penalty * R_MAX * spread)
         c = c * (1 - fail)
         x, a_prev = x1, a
     return J
@@ -351,14 +381,16 @@ def main(argv=None) -> int:
     rand_eps = list(d["train"])
     X = np.concatenate([ep["x"] for ep in rand_eps])
     D = np.concatenate([np.diff(ep["x"], axis=0) for ep in rand_eps])
-    wm = LiftWM(len(STATE), 2, [512, 512, 512], X.mean(0), X.std(0) + 1e-6, D.std(0) + 1e-6, hist=args.wm_history)
-    wopt = torch.optim.Adam(wm.parameters(), lr=1e-3)
+    members = [LiftWM(len(STATE), 2, [512, 512, 512], X.mean(0), X.std(0) + 1e-6, D.std(0) + 1e-6, hist=args.wm_history) for _ in range(args.wm_ensemble)]
+    wm = members[0] if args.wm_ensemble == 1 else WMEnsemble(members)
+    wopt = torch.optim.Adam(wm.parameters(), lr=1e-3) if args.wm_ensemble == 1 else [torch.optim.Adam(m.parameters(), lr=1e-3) for m in members]
     log(f"world model: pretraining on {sum(len(ep['x']) for ep in rand_eps)} random-excitation steps")
     for g in range(args.wm_pretrain // 500):
         loss = wm_update(wm, wopt, rand_eps, 8, 500, rng)
         log(f"  {(g + 1) * 500} updates, 8-step loss {loss:.4f}")
-    for gr in wopt.param_groups:
-        gr["lr"] = 3e-4
+    for o in wopt if isinstance(wopt, list) else [wopt]:
+        for gr in o.param_groups:
+            gr["lr"] = 3e-4
     train_rng, eval_rng = np.random.default_rng(args.seed + 1), np.random.default_rng(args.seed + 2000)
     eval_cases = []
     for _ in range(args.eval_paths):
@@ -411,7 +443,7 @@ def main(argv=None) -> int:
             imag = []
             for _ in range(args.policy_updates):
                 st, paths = sample_starts(task_logs, args.batch, rng, wm.hist)
-                J = imagine(wm, policy, st, paths, args.horizon)
+                J = imagine(wm, policy, st, paths, args.horizon, args.unc_penalty)
                 loss = -J.mean() / args.horizon
                 popt.zero_grad()
                 loss.backward()

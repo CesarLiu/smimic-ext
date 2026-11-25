@@ -257,7 +257,8 @@ def identify_slosh(lift_data: str) -> dict:
     A = D[:, :5]
     for name, col in (("roll", 5), ("ltr", 6), ("slosh", 7)):
         coef, *_ = np.linalg.lstsq(A, D[:, col], rcond=None)
-        out[name] = {"coef_ay_roll_rate_swing_swingrate": coef.tolist(), "r2": float(1 - ((D[:, col] - A @ coef) ** 2).mean() / D[:, col].var())}
+        res = D[:, col] - A @ coef
+        out[name] = {"coef_ay_roll_rate_swing_swingrate": coef.tolist(), "r2": float(1 - (res**2).mean() / D[:, col].var()), "resid_std": float(res.std())}
     return out
 
 
@@ -270,6 +271,7 @@ class SloshMPC(RollMPC):
 
     def __init__(self, ident: dict, w_ltr: float = 500.0, ltr_soft: float = 0.6):
         self.cs = ident["slosh"]["coef_ay_roll_rate_swing_swingrate"]
+        self._ident_full = ident
         ident = {**ident, "roll": {"coef_ay_roll_rate": ident["roll"]["coef_ay_roll_rate_swing_swingrate"]},
                  "ltr": {"coef_ay_roll_rate": ident["ltr"]["coef_ay_roll_rate_swing_swingrate"]}}
         super().__init__(ident, w_ltr, ltr_soft)
@@ -295,6 +297,53 @@ class SloshMPC(RollMPC):
         return np.concatenate([super()._x0(i, o), [th, thd]])
 
 
+class SwingObserver:
+    """Kalman filter for the payload swing (angle, rate) without measuring it: the swing model of ``identify_slosh``
+    (driven by the measured lateral acceleration, roll and roll rate) predicts, and the roll acceleration left
+    unexplained by lateral acceleration, roll and roll rate measures c_th * swing + c_thd * swing rate. The coefficients
+    and noise levels come from a development data set in which the swing was instrumented."""
+
+    def __init__(self, ident: dict, dt: float = 0.02):
+        self.cr = np.asarray(ident["roll"]["coef_ay_roll_rate_swing_swingrate"])
+        self.cs = np.asarray(ident["slosh"]["coef_ay_roll_rate_swing_swingrate"])
+        s = self.cs
+        self.dt = dt
+        self.A = np.array([[1.0, dt], [s[3] * dt, 1.0 + s[4] * dt]])
+        self.H = self.cr[3:5]
+        self.Q = np.diag([1e-8, (ident["slosh"]["resid_std"] * dt) ** 2])
+        self.R = ident["roll"]["resid_std"] ** 2 + (2 * 0.002 / dt) ** 2  # model residual + differencing noise on the roll rate
+
+    def reset(self):
+        self.z, self.P, self.p_prev = np.zeros(2), np.diag([0.05, 0.2]) ** 2, None
+
+    def update(self, ay: float, roll: float, p: float) -> np.ndarray:
+        s, c, dt = self.cs, self.cr, self.dt
+        self.z = self.A @ self.z + np.array([0.0, dt * (s[0] * ay + s[1] * roll + s[2] * p)])
+        self.P = self.A @ self.P @ self.A.T + self.Q
+        if self.p_prev is not None:
+            y = (p - self.p_prev) / dt - (c[0] * ay + c[1] * roll + c[2] * p)
+            K = self.P @ self.H / (self.H @ self.P @ self.H + self.R)
+            self.z = self.z + K * (y - self.H @ self.z)
+            self.P = (np.eye(2) - np.outer(K, self.H)) @ self.P
+        self.p_prev = p
+        return self.z.copy()
+
+
+class SloshObserverMPC(SloshMPC):
+    """``SloshMPC`` with the swing estimated by ``SwingObserver`` instead of measured: what a production controller
+    could do once engineers know the payload swings and have identified it."""
+
+    def reset(self, n):
+        super().reset(n)
+        self.obs = [SwingObserver(self._ident_full, self.DT) for _ in range(n)]
+        for ob in self.obs:
+            ob.reset()
+
+    def _x0(self, i, o):
+        th, thd = self.obs[i].update(o["ay"], o["roll_b"], o["p"])
+        return np.concatenate([RollMPC._x0(self, i, o), [th, thd]])
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--lift-data", required=True)
@@ -305,14 +354,16 @@ def main(argv=None) -> int:
     ap.add_argument("--slosh-length", type=float, default=0.0, help="hang the roof load on a pendulum this long [m] (0: rigid)")
     ap.add_argument("--slosh-damping", type=float, default=500.0, help="pendulum damping [N m s/rad]")
     ap.add_argument("--slosh-aware", action="store_true", help="oracle SloshMPC: models the swing and sees its angle")
+    ap.add_argument("--slosh-observer", action="store_true", help="SloshMPC with the swing estimated by a Kalman filter (no swing measurement)")
     ap.add_argument("--python", default=None)
     ap.add_argument("--out", default="logs/chrono_roll_mpc.json")
     args = ap.parse_args(argv)
     t0 = time.time()
     if args.slosh_length > 0:
         set_slosh(args.slosh_length, args.slosh_damping)
-    ident = identify_slosh(args.lift_data) if args.slosh_aware else identify(args.lift_data)
-    if args.slosh_aware:
+    slosh = args.slosh_aware or args.slosh_observer
+    ident = identify_slosh(args.lift_data) if slosh else identify(args.lift_data)
+    if slosh:
         print(f"swing model R2 {ident['slosh']['r2']:.3f}", flush=True)
     print(f"identified: roll model R2 {ident['roll']['r2']:.3f}, LTR model R2 {ident['ltr']['r2']:.3f}, cornering stiffness "
           f"{ident['cornering_stiffness_f']:.0f} / {ident['cornering_stiffness_r']:.0f} N/rad ({ident['samples']} grounded samples)", flush=True)
@@ -324,7 +375,7 @@ def main(argv=None) -> int:
     report = {"identification": ident, "runs": {}}
     with ChronoPool(args.workers, args.python) as pool:
         for w in args.w_ltr:
-            mpc = (SloshMPC if args.slosh_aware else RollMPC)(ident, w_ltr=w)
+            mpc = (SloshObserverMPC if args.slosh_observer else SloshMPC if args.slosh_aware else RollMPC)(ident, w_ltr=w)
             ev, _ = evaluate(pool, cases, mpc, types.SimpleNamespace(workers=args.workers))
             ev["solver"] = mpc.timing()
             report["runs"][f"w_ltr_{w:g}"] = ev
