@@ -32,7 +32,15 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from chrono_lift_check import STATE
-from chrono_rollover_control import A_MAX, A_MIN, DS, EVAL_SPEEDS, evaluate, lane_change_path
+from chrono_rollover_control import (
+    A_MAX,
+    A_MIN,
+    DS,
+    EVAL_SPEEDS,
+    evaluate,
+    lane_change_path,
+    set_slosh,
+)
 
 from supermimic.baselines.nmpc import AxleTyre
 from supermimic.vehicles.chrono_env import ChronoPool, axle_forces
@@ -85,6 +93,7 @@ def identify(lift_data: str) -> dict:
 
 class RollMPC:
     N, INTERVAL, DT = 30, 3, 0.02
+    NX = 10  # X, Y, yaw, vx, vy, r, roll, roll rate, wheel angle, acceleration
     GRID = np.arange(0.0, 91.0, 1.0)
 
     def __init__(self, ident: dict, w_ltr: float = 500.0, ltr_soft: float = 0.6):
@@ -99,31 +108,32 @@ class RollMPC:
         self._build()
         self.warm, self.solve_ms, self.failures = {}, [], 0
 
+    def _axle_forces(self, x):
+        ca = self.ca
+        vxs = ca.fmax(x[3], 1.0)
+        af = ca.atan((x[4] + A_AX * x[5]) / vxs) - x[8]
+        ar = ca.atan((x[4] - B_AX * x[5]) / vxs)
+        fyf, fyr = self.front.force(af, 1.0, ca), self.rear.force(ar, 1.0, ca)
+        return fyf, fyr, (fyf * ca.cos(x[8]) + fyr) / M
+
     def _ode(self, x, u):
         ca = self.ca
         _X, _Y, psi, vx, vy, r, phi, p, delta, a_act = (x[i] for i in range(10))
-        vxs = ca.fmax(vx, 1.0)
-        af = ca.atan((vy + A_AX * r) / vxs) - delta
-        ar = ca.atan((vy - B_AX * r) / vxs)
-        fyf, fyr = self.front.force(af, 1.0, ca), self.rear.force(ar, 1.0, ca)
-        ay = (fyf * ca.cos(delta) + fyr) / M
+        fyf, fyr, ay = self._axle_forces(x)
         c = self.cr
         return ca.vertcat(vx * ca.cos(psi) - vy * ca.sin(psi), vx * ca.sin(psi) + vy * ca.cos(psi), r,
                           a_act - fyf * ca.sin(delta) / M + r * vy, ay - r * vx, (A_AX * fyf * ca.cos(delta) - B_AX * fyr) / I_Z,
                           p, c[0] * ay + c[1] * phi + c[2] * p, (u[0] - delta) / self.tau_d, (u[1] - a_act) / 0.5)
 
     def _ltr(self, x, u):
-        ca = self.ca
-        vxs = ca.fmax(x[3], 1.0)
-        af = ca.atan((x[4] + A_AX * x[5]) / vxs) - x[8]
-        ar = ca.atan((x[4] - B_AX * x[5]) / vxs)
-        ay = (self.front.force(af, 1.0, ca) * ca.cos(x[8]) + self.rear.force(ar, 1.0, ca)) / M
+        ay = self._axle_forces(x)[2]
         c = self.cl
         return c[0] * ay + c[1] * x[6] + c[2] * x[7]
 
     def _build(self):
         ca, N, NG = self.ca, self.N, len(self.GRID)
-        xs, us = ca.SX.sym("x", 10), ca.SX.sym("u", 2)
+        NX = self.NX
+        xs, us = ca.SX.sym("x", NX), ca.SX.sym("u", 2)
         h = self.T / 2
         x = xs
         for _ in range(2):  # RK4, 2 substeps per interval
@@ -136,9 +146,9 @@ class RollMPC:
         LT = ca.Function("LT", [xs, us], [self._ltr(xs, us)])
         yl = ca.interpolant("yl", "linear", [self.GRID.tolist()], 1)
         pl = ca.interpolant("pl", "linear", [self.GRID.tolist()], 1)
-        Xv, Uv = ca.SX.sym("X", 10, N + 1), ca.SX.sym("U", 2, N)
-        P = ca.SX.sym("P", 10 + 2 * NG + 2 + 1)  # x0, path y and yaw on the grid, previous command, v_ref
-        x0, ygrid, pgrid, u_prev, v_ref = P[:10], P[10:10 + NG], P[10 + NG:10 + 2 * NG], P[10 + 2 * NG:12 + 2 * NG], P[-1]
+        Xv, Uv = ca.SX.sym("X", NX, N + 1), ca.SX.sym("U", 2, N)
+        P = ca.SX.sym("P", NX + 2 * NG + 2 + 1)  # x0, path y and yaw on the grid, previous command, v_ref
+        x0, ygrid, pgrid, u_prev, v_ref = P[:NX], P[NX:NX + NG], P[NX + NG:NX + 2 * NG], P[NX + 2 * NG:NX + 2 + 2 * NG], P[-1]
         g = [Xv[:, 0] - x0]
         J = 0
         for k in range(N):
@@ -160,7 +170,7 @@ class RollMPC:
                 "ipopt.acceptable_iter": 3, "ipopt.warm_start_init_point": "yes", "ipopt.mu_init": 1e-3, "ipopt.sb": "yes", "expand": True}
         self.solver = ca.nlpsol("rollmpc", "ipopt", {"x": w, "p": P, "f": J, "g": ca.vertcat(*g)}, opts)
         rate_gap = 1.2 * K_STEER * 0.05
-        nd = 10 * (N + 1)
+        nd = NX * (N + 1)
         self.lbg = np.concatenate([np.zeros(nd), -rate_gap * np.ones(N)])
         self.ubg = np.concatenate([np.zeros(nd), rate_gap * np.ones(N)])
         self.lbx = np.full(nd + 2 * N, -np.inf)
@@ -173,6 +183,10 @@ class RollMPC:
         self.warm = {}
         self.a_est = [0.0] * n
 
+    def _x0(self, i, o):
+        self.a_est[i] = 0.8 * self.a_est[i] + 0.2 * o["ax"]
+        return np.array([0.0, 0.0, 0.0, o["vx"], o["vy"], o["r"], o["roll_b"], o["p"], o["delta"], self.a_est[i]])
+
     def act(self, i, o, path, j, v_ref, a_prev):
         N, nd = self.N, self.nd
         c, s = math.cos(o["yaw"]), math.sin(o["yaw"])
@@ -183,8 +197,7 @@ class RollMPC:
         order = np.argsort(xl)
         ygrid = np.interp(self.GRID, xl[order], ylc[order])
         pgrid = np.interp(self.GRID, xl[order], psil[order])
-        self.a_est[i] = 0.8 * self.a_est[i] + 0.2 * o["ax"]
-        x0 = np.array([0.0, 0.0, 0.0, o["vx"], o["vy"], o["r"], o["roll_b"], o["p"], o["delta"], self.a_est[i]])
+        x0 = self._x0(i, o)
         u_prev = np.array([a_prev[0] * K_STEER, a_prev[1]])
         P = np.concatenate([x0, ygrid, pgrid, u_prev, [v_ref]])
         if i in self.warm:  # shift the previous solution by one control step, re-anchored at the new state
@@ -204,7 +217,7 @@ class RollMPC:
         if not np.isfinite(xs).all():
             ok, xs = False, g["x"]
         self.failures += not ok
-        X = xs[:nd].reshape(N + 1, 10)
+        X = xs[:nd].reshape(N + 1, self.NX)
         U = xs[nd:].reshape(N, 2)
         # warm start for the next step: the local frame moves with the car, so start again from the shifted inputs and
         # the predicted states expressed relative to the first predicted step
@@ -221,6 +234,67 @@ class RollMPC:
         return {"solves": len(self.solve_ms), "failures": self.failures, "mean_ms": float(t.mean()), "p95_ms": float(np.percentile(t, 95))}
 
 
+def identify_slosh(lift_data: str) -> dict:
+    """``identify`` plus roll, LTR and payload-swing models that also see the swing angle and rate: privileged
+    information (``chrono_worker``'s diagnostic ``slosh`` channel, recorded by ``chrono_lift_check.collect``)."""
+    out = identify(lift_data)
+    d = np.load(lift_data, allow_pickle=True)
+    rows = []
+    for ep in d["train"]:
+        x = ep["x"]
+        if len(x) < 10:
+            continue
+        if "slosh" not in ep:
+            raise ValueError(f"{lift_data} has no payload swing angle: recollect it with the current chrono_lift_check")
+        vy, r, vx, p, th = x[:, IX["vy"]], x[:, IX["r"]], x[:, IX["vx"]], x[:, IX["p"]], ep["slosh"]
+        thd = np.gradient(th, 0.02)
+        fz = x[:, 12:16]
+        ltr = ((fz[:, 0] + fz[:, 2]) - (fz[:, 1] + fz[:, 3])) / np.maximum(fz.sum(1), 1e3)
+        grounded = (fz >= 100).all(1) & (ep["tilt"] < math.radians(10)) & (vx > 5)
+        rows.append(np.stack([np.gradient(vy, 0.02) + r * vx, x[:, IX["roll_b"]], p, th, thd, np.gradient(p, 0.02), ltr, np.gradient(thd, 0.02), grounded], 1))
+    D = np.concatenate(rows)
+    D = D[D[:, -1] > 0]
+    A = D[:, :5]
+    for name, col in (("roll", 5), ("ltr", 6), ("slosh", 7)):
+        coef, *_ = np.linalg.lstsq(A, D[:, col], rcond=None)
+        out[name] = {"coef_ay_roll_rate_swing_swingrate": coef.tolist(), "r2": float(1 - ((D[:, col] - A @ coef) ** 2).mean() / D[:, col].var())}
+    return out
+
+
+class SloshMPC(RollMPC):
+    """``RollMPC`` with the payload's swing angle and rate as two more states, identified as linear in (lateral
+    acceleration, roll, roll rate, swing, swing rate), and the measured swing angle in the initial state. An oracle:
+    it is told the payload sloshes and sees the swing, which neither the plain MPC nor the learned controllers do."""
+
+    NX = 12
+
+    def __init__(self, ident: dict, w_ltr: float = 500.0, ltr_soft: float = 0.6):
+        self.cs = ident["slosh"]["coef_ay_roll_rate_swing_swingrate"]
+        ident = {**ident, "roll": {"coef_ay_roll_rate": ident["roll"]["coef_ay_roll_rate_swing_swingrate"]},
+                 "ltr": {"coef_ay_roll_rate": ident["ltr"]["coef_ay_roll_rate_swing_swingrate"]}}
+        super().__init__(ident, w_ltr, ltr_soft)
+
+    def _ode(self, x, u):
+        ca = self.ca
+        base = super()._ode(x, u)  # uses the first three roll coefficients
+        ay, phi, p, th, thd = self._axle_forces(x)[2], x[6], x[7], x[10], x[11]
+        c, s = self.cr, self.cs
+        return ca.vertcat(base[:7], base[7] + c[3] * th + c[4] * thd, base[8:10], thd, s[0] * ay + s[1] * phi + s[2] * p + s[3] * th + s[4] * thd)
+
+    def _ltr(self, x, u):
+        return super()._ltr(x, u) + self.cl[3] * x[10] + self.cl[4] * x[11]
+
+    def reset(self, n):
+        super().reset(n)
+        self.th_prev = [None] * n
+
+    def _x0(self, i, o):
+        th = float(o["slosh"])
+        thd = 0.0 if self.th_prev[i] is None else (th - self.th_prev[i]) / self.DT
+        self.th_prev[i] = th
+        return np.concatenate([super()._x0(i, o), [th, thd]])
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--lift-data", required=True)
@@ -228,11 +302,18 @@ def main(argv=None) -> int:
     ap.add_argument("--eval-paths", type=int, default=8)
     ap.add_argument("--w-ltr", type=float, nargs="+", default=[500.0], help="LTR penalty weights to evaluate")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--slosh-length", type=float, default=0.0, help="hang the roof load on a pendulum this long [m] (0: rigid)")
+    ap.add_argument("--slosh-damping", type=float, default=500.0, help="pendulum damping [N m s/rad]")
+    ap.add_argument("--slosh-aware", action="store_true", help="oracle SloshMPC: models the swing and sees its angle")
     ap.add_argument("--python", default=None)
     ap.add_argument("--out", default="logs/chrono_roll_mpc.json")
     args = ap.parse_args(argv)
     t0 = time.time()
-    ident = identify(args.lift_data)
+    if args.slosh_length > 0:
+        set_slosh(args.slosh_length, args.slosh_damping)
+    ident = identify_slosh(args.lift_data) if args.slosh_aware else identify(args.lift_data)
+    if args.slosh_aware:
+        print(f"swing model R2 {ident['slosh']['r2']:.3f}", flush=True)
     print(f"identified: roll model R2 {ident['roll']['r2']:.3f}, LTR model R2 {ident['ltr']['r2']:.3f}, cornering stiffness "
           f"{ident['cornering_stiffness_f']:.0f} / {ident['cornering_stiffness_r']:.0f} N/rad ({ident['samples']} grounded samples)", flush=True)
     eval_rng = np.random.default_rng(args.seed + 2000)
@@ -243,7 +324,7 @@ def main(argv=None) -> int:
     report = {"identification": ident, "runs": {}}
     with ChronoPool(args.workers, args.python) as pool:
         for w in args.w_ltr:
-            mpc = RollMPC(ident, w_ltr=w)
+            mpc = (SloshMPC if args.slosh_aware else RollMPC)(ident, w_ltr=w)
             ev, _ = evaluate(pool, cases, mpc, types.SimpleNamespace(workers=args.workers))
             ev["solver"] = mpc.timing()
             report["runs"][f"w_ltr_{w:g}"] = ev

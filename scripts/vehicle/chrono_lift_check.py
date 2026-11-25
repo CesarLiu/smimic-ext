@@ -61,6 +61,9 @@ def parse(argv=None):
     ap.add_argument("--grad-per-regime", type=int, default=40)
     ap.add_argument("--h", type=float, default=0.05, help="steering perturbation (normalised command units)")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--slosh-length", type=float, default=0.0, help="hang the roof load on a pendulum this long [m] (0: rigid)")
+    ap.add_argument("--slosh-damping", type=float, default=500.0, help="pendulum damping [N m s/rad]")
+    ap.add_argument("--collect-only", action="store_true", help="stop once the data is cached")
     ap.add_argument("--cache", default="logs/chrono_lift_data.npz")
     ap.add_argument("--python", default=None)
     ap.add_argument("--out", default="logs/chrono_lift_check.json")
@@ -95,7 +98,8 @@ def collect(args, n, seed, log):
                 obs = [res["obs0"], *res["obs"]]
                 eps.append({"cfg": cfg, "actions": np.array(acts[: len(obs) - 1], dtype=np.float64),
                             "x": np.array([[o[k] for k in STATE] for o in obs], dtype=np.float64),
-                            "tilt": np.array([o["tilt"] for o in obs])})
+                            "tilt": np.array([o["tilt"] for o in obs]),
+                            "slosh": np.array([o.get("slosh", 0.0) for o in obs])})  # payload swing: diagnostics and oracle MPC only
             if (i // args.workers) % 20 == 0:
                 log(f"  {len(eps)}/{n} episodes")
     return eps
@@ -314,8 +318,11 @@ def gradient_check(args, wm, eps, log):
 
 
 def main(argv=None) -> int:
+    global CFG
     args = parse(argv)
     torch.manual_seed(args.seed)
+    if args.slosh_length > 0:
+        CFG = {**CFG, "slosh_length": args.slosh_length, "slosh_damping": args.slosh_damping}
     t0 = time.time()
     def log(m):
         print(f"[{time.time() - t0:6.0f}s] {m}", flush=True)
@@ -332,6 +339,8 @@ def main(argv=None) -> int:
         test_eps = collect(args, args.heldout, args.seed + 1000, log)
         cache.parent.mkdir(parents=True, exist_ok=True)
         np.savez(cache, train=np.array(train_eps, dtype=object), test=np.array(test_eps, dtype=object))
+    if args.collect_only:
+        return 0
     counts = np.bincount([regime(x, tl) for ep in train_eps for x, tl in zip(ep["x"], ep["tilt"])], minlength=4)
     log(f"{len(train_eps)} training episodes, {sum(len(ep['x']) for ep in train_eps)} steps; regimes " +
         ", ".join(f"{n} {c}" for n, c in zip(REGIMES, counts)))
