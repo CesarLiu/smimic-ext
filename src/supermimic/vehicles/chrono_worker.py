@@ -52,6 +52,9 @@ DEFAULTS = {
     "steer_tau": 0.05, "steer_rate": 1.2,  # servo time constant [s], rate limit [1/s] in normalised units
     "kp": 0.4, "ki": 0.4, "kff": 0.08,  # speed loop: throttle per (m/s) error, per (m/s s), per (m/s^2) command
     "roof_kg": 0.0, "powertrain": "shafts", "chassis_collision": False,
+    # sloshing payload: the roof load hangs on a pendulum about the chassis x axis (length [m], damping [N m s/rad]),
+    # its centre at the same static height as the rigid load; 0 = rigid
+    "slosh_length": 0.0, "slosh_damping": 2000.0,
     "max_roll": 0.7,  # [rad] the observation is not ok beyond this roll
 }
 
@@ -93,15 +96,30 @@ class Sim:
         sys_ = h.GetSystem()
         sys_.SetCollisionSystemType(chrono.ChCollisionSystem.Type_BULLET)
         sys_.SetNumThreads(1, 1, 1)
+        self.slosh = None
         if c["roof_kg"] > 0:
             ch = h.GetChassisBody()
             roof = chrono.ChBodyEasyBox(1.6, 1.4, 0.3, c["roof_kg"] / (1.6 * 1.4 * 0.3), True, False)
             roof.SetPos(ch.GetPos() + ch.GetRot().Rotate(chrono.ChVector3d(0, 0, 1.6)))
             roof.SetRot(ch.GetRot())
             sys_.Add(roof)
-            link = chrono.ChLinkLockLock()
-            link.Initialize(roof, ch, chrono.ChFramed(roof.GetPos(), roof.GetRot()))
-            sys_.Add(link)
+            if c["slosh_length"] > 0:  # pendulum: pivot slosh_length above the load's centre, axis = chassis x
+                qy = chrono.ChQuaterniond()
+                qy.SetFromAngleY(math.pi / 2)
+                frame = chrono.ChFramed(ch.GetPos() + ch.GetRot().Rotate(chrono.ChVector3d(0, 0, 1.6 + c["slosh_length"])), ch.GetRot() * qy)
+                joint = chrono.ChLinkLockRevolute()
+                joint.Initialize(roof, ch, frame)
+                sys_.Add(joint)
+                damper = chrono.ChLinkRSDA()
+                damper.Initialize(roof, ch, frame)
+                damper.SetSpringCoefficient(0.0)
+                damper.SetDampingCoefficient(c["slosh_damping"])
+                sys_.Add(damper)
+                self.slosh = damper
+            else:
+                link = chrono.ChLinkLockLock()
+                link.Initialize(roof, ch, chrono.ChFramed(roof.GetPos(), roof.GetRot()))
+                sys_.Add(link)
         if c["terrain"] == "rigid":
             terrain = veh.RigidTerrain(sys_)
             mat = chrono.ChContactMaterialSMC()
@@ -171,6 +189,8 @@ class Sim:
         }
         for i, (a, side) in enumerate((a, s) for a in (0, 1) for s in (veh.LEFT, veh.RIGHT)):
             obs[f"fz{i}"] = v.GetTire(a, side).ReportTireForce(self.terrain).force.z
+        if self.slosh is not None:
+            obs["slosh"] = self.slosh.GetAngle()  # diagnostics only: no controller or world model sees it
         obs["ok"] = all(math.isfinite(x) for x in obs.values()) and abs(roll) < self.c["max_roll"]
         return obs
 

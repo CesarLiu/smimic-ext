@@ -56,6 +56,7 @@ def parse(argv=None):
     ap.add_argument("--updates", type=int, default=6000)
     ap.add_argument("--hidden", type=int, nargs="+", default=[512, 512, 512])
     ap.add_argument("--k", type=int, default=8)
+    ap.add_argument("--history", type=int, default=2, help="states (and actions) of history the world model sees")
     ap.add_argument("--grad-k", type=int, nargs="+", default=[5, 15])
     ap.add_argument("--grad-per-regime", type=int, default=40)
     ap.add_argument("--h", type=float, default=0.05, help="steering perturbation (normalised command units)")
@@ -120,9 +121,13 @@ def two_lift(x_row):
 
 
 class LiftWM(nn.Module):
-    def __init__(self, n_x, n_a, hidden, mean, std, dstd):
+    """Next state from the last ``hist`` states and actions (newest first in the input; ``hist`` = 2 is the original
+    two-state model). Longer histories let it infer states it is not given, such as a sloshing payload's swing."""
+
+    def __init__(self, n_x, n_a, hidden, mean, std, dstd, hist: int = 2):
         super().__init__()
-        layers, d = [], 2 * (n_x + n_a)
+        self.hist = hist
+        layers, d = [], hist * (n_x + n_a)
         for h in hidden:
             layers += [nn.Linear(d, h), nn.ELU()]
             d = h
@@ -132,38 +137,56 @@ class LiftWM(nn.Module):
         self.register_buffer("std", torch.as_tensor(std, dtype=torch.float32))
         self.register_buffer("dstd", torch.as_tensor(dstd, dtype=torch.float32))
 
-    def step(self, x, x_prev, a, a_prev):
-        z = torch.cat([(x - self.mean) / self.std, (x_prev - self.mean) / self.std, a, a_prev], -1)
-        return x + self.dstd * self.net(z)
+    def step_hist(self, Xh, Ah):
+        """Xh (hist, n, X) states and Ah (hist, n, 2) actions, oldest first (Ah[-1] is the action applied now)."""
+        z = torch.cat([*((Xh[i] - self.mean) / self.std for i in reversed(range(self.hist))), *(Ah[i] for i in reversed(range(self.hist)))], -1)
+        return Xh[-1] + self.dstd * self.net(z)
 
-    def rollout(self, x0, x_prev, actions, a_prev):
-        """actions (k, n, 2) -> states (k, n, X) after each step."""
+    def step(self, x, x_prev, a, a_prev):
+        assert self.hist == 2
+        return self.step_hist(torch.stack([x_prev, x]), torch.stack([a_prev, a]))
+
+    def rollout_hist(self, Xh, Ah_past, actions):
+        """Xh (hist, n, X) states up to now, Ah_past (hist - 1, n, 2) the actions before now, actions (k, n, 2) ->
+        states (k, n, X) after each step."""
         out = []
         for t in range(actions.shape[0]):
-            x1 = self.step(x0, x_prev, actions[t], a_prev)
+            x1 = self.step_hist(Xh, torch.cat([Ah_past, actions[t][None]]))
             out.append(x1)
-            x_prev, x0, a_prev = x0, x1, actions[t]
+            Xh = torch.cat([Xh[1:], x1[None]])
+            Ah_past = torch.cat([Ah_past[1:], actions[t][None]]) if self.hist > 1 else Ah_past
         return torch.stack(out)
 
+    def rollout(self, x0, x_prev, actions, a_prev):
+        """hist = 2: actions (k, n, 2) -> states (k, n, X) after each step."""
+        return self.rollout_hist(torch.stack([x_prev, x0]), a_prev[None], actions)
 
-def windows(eps, k):
-    """(episode, t) with t >= 1 and t + k inside the episode."""
-    return [(e, t) for e, ep in enumerate(eps) for t in range(1, len(ep["x"]) - k)]
+
+def windows(eps, k, hist: int = 2):
+    """(episode, t) with t >= hist - 1 and t + k inside the episode."""
+    return [(e, t) for e, ep in enumerate(eps) for t in range(hist - 1, len(ep["x"]) - k)]
 
 
-def batch(eps, idx, k):
-    X = np.stack([eps[e]["x"][t - 1:t + k + 1] for e, t in idx], 1)  # (k + 2, n, X): x_{t-1} .. x_{t+k}
-    A = np.stack([eps[e]["actions"][t - 1:t + k] for e, t in idx], 1)  # (k + 1, n, 2): a_{t-1} .. a_{t+k-1}
+def batch(eps, idx, k, hist: int = 2):
+    """X (hist + k, n, X): x_{t-hist+1} .. x_{t+k}; A (hist - 1 + k, n, 2): a_{t-hist+1} .. a_{t+k-1}."""
+    X = np.stack([eps[e]["x"][t - hist + 1:t + k + 1] for e, t in idx], 1)
+    A = np.stack([eps[e]["actions"][t - hist + 1:t + k] for e, t in idx], 1)
     return torch.as_tensor(X, dtype=torch.float32), torch.as_tensor(A, dtype=torch.float32)
+
+
+def predict(wm, Xb, Ab):
+    """The world model's k-step prediction for a batch from ``batch``: states x_{t+1} .. x_{t+k}."""
+    H = wm.hist
+    return wm.rollout_hist(Xb[:H], Ab[:H - 1], Ab[H - 1:])
 
 
 def train(args, eps, log):
     X = np.concatenate([ep["x"] for ep in eps])
     D = np.concatenate([np.diff(ep["x"], axis=0) for ep in eps])
     mean, std, dstd = X.mean(0), X.std(0) + 1e-6, D.std(0) + 1e-6
-    wm = LiftWM(len(STATE), 2, args.hidden, mean, std, dstd)
+    wm = LiftWM(len(STATE), 2, args.hidden, mean, std, dstd, hist=args.history)
     opt = torch.optim.Adam(wm.parameters(), lr=1e-3)
-    idx = windows(eps, args.k)
+    idx = windows(eps, args.k, wm.hist)
     rng = np.random.default_rng(args.seed)
     stdt = torch.as_tensor(std, dtype=torch.float32)
     t0 = time.time()
@@ -171,9 +194,9 @@ def train(args, eps, log):
         for g in opt.param_groups:
             g["lr"] = 1e-4 + 0.5 * (1e-3 - 1e-4) * (1 + math.cos(math.pi * u / args.updates))
         sel = [idx[i] for i in rng.integers(0, len(idx), 512)]
-        Xb, Ab = batch(eps, sel, args.k)
-        pred = wm.rollout(Xb[1], Xb[0], Ab[1:], Ab[0])
-        loss = (((pred - Xb[2:]) / stdt) ** 2).mean()
+        Xb, Ab = batch(eps, sel, args.k, wm.hist)
+        pred = predict(wm, Xb, Ab)
+        loss = (((pred - Xb[wm.hist:]) / stdt) ** 2).mean()
         opt.zero_grad()
         loss.backward()
         nn.utils.clip_grad_norm_(wm.parameters(), 1.0)
@@ -188,17 +211,17 @@ def train(args, eps, log):
 
 @torch.no_grad()
 def prediction_errors(wm, eps, k):
-    idx = windows(eps, k)
+    idx = windows(eps, k, wm.hist)
     stdt = wm.std
     rows = {name: [] for name in [*REGIMES, "lift_transition"]}
     base = {name: [] for name in rows}
     per_var = {name: [] for name in rows}
     for i in range(0, len(idx), 4096):
         sel = idx[i:i + 4096]
-        Xb, Ab = batch(eps, sel, k)
-        pred = wm.rollout(Xb[1], Xb[0], Ab[1:], Ab[0])
+        Xb, Ab = batch(eps, sel, k, wm.hist)
+        pred = predict(wm, Xb, Ab)
         err = (((pred[-1] - Xb[-1]) / stdt) ** 2).mean(-1).numpy()
-        zero = (((Xb[1] - Xb[-1]) / stdt) ** 2).mean(-1).numpy()
+        zero = (((Xb[wm.hist - 1] - Xb[-1]) / stdt) ** 2).mean(-1).numpy()
         var = (((pred[-1] - Xb[-1]) / stdt) ** 2).numpy()
         for j, (e, t) in enumerate(sel):
             ep = eps[e]
@@ -230,7 +253,7 @@ def gradient_check(args, wm, eps, log):
         for k in args.grad_k:
             cands = {r: [] for r in range(len(REGIMES))}
             for e, ep in enumerate(eps):
-                for t in range(1, len(ep["x"]) - k):
+                for t in range(wm.hist - 1, len(ep["x"]) - k):
                     a = ep["actions"][t:t + k, 0]
                     if np.abs(a).max() < 1 - args.h:  # no clipping of the perturbed commands
                         cands[regime(ep["x"][t], ep["tilt"][t])].append((e, t))
@@ -268,7 +291,8 @@ def gradient_check(args, wm, eps, log):
                 shift = torch.zeros(1, requires_grad=True)
                 acts = A[t:t + k].clone()
                 acts[:, 0] = acts[:, 0] + shift
-                pred = wm.rollout(X[t][None], X[t - 1][None], acts[:, None], A[t - 1][None])
+                H = wm.hist
+                pred = wm.rollout_hist(X[t - H + 1:t + 1][:, None], A[t - H + 1:t][:, None], acts[:, None])
                 y = (pred[-1, 0, oi] / wm.std[oi])
                 gw = np.array([float(torch.autograd.grad(y[i], shift, retain_graph=True)[0]) for i in range(len(OUT))])
                 rows.append({"regime": r, "smooth": cos(g1, g2) > 0.9, "tiny": float(np.linalg.norm(g1)) < 1e-2, "cos": cos(gw, g1),

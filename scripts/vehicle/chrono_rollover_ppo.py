@@ -27,7 +27,7 @@ from torch import nn
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from chrono_lift_check import CFG as LIFT_CFG
+import chrono_rollover_control as crc
 from chrono_lift_check import STATE
 from chrono_rollover_control import (
     A_MAX,
@@ -45,6 +45,7 @@ from chrono_rollover_control import (
     placed,
     reward,
     sample_starts,
+    set_slosh,
 )
 
 from supermimic.vehicles.chrono_env import ChronoPool
@@ -70,6 +71,8 @@ def parse(argv=None):
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--python", default=None)
     ap.add_argument("--out", default="logs/chrono_rollover_ppo.json")
+    ap.add_argument("--slosh-length", type=float, default=0.0, help="sloshing payload: pendulum length [m] (0 = rigid roof load); section 11.14")
+    ap.add_argument("--slosh-damping", type=float, default=500.0, help="sloshing payload: pendulum damping [N m s/rad]")
     return ap.parse_args(argv)
 
 
@@ -86,7 +89,7 @@ class Env:
     def reset(self, i):
         p, _ = lane_change_path(self.rng)
         v = float(self.rng.uniform(*TRAIN_SPEEDS))
-        o = self.pool.reset([{**LIFT_CFG, "v": v}], ids=[i])[0]
+        o = self.pool.reset([{**crc.LIFT_CFG, "v": v}], ids=[i])[0]
         self.obs[i], self.paths[i], self.vref[i], self.hint[i], self.a_prev[i] = o, placed(p, o["x"], o["y"], o["yaw"]), v, 0, [0.0, 0.0]
         self.end_idx[i] = len(p) - int(70 / DS)
 
@@ -123,6 +126,8 @@ class Env:
 
 def main(argv=None) -> int:
     args = parse(argv)
+    if args.slosh_length > 0:  # every Chrono episode of this run carries the sloshing payload
+        set_slosh(args.slosh_length, args.slosh_damping)
     torch.manual_seed(args.seed)
     rng = np.random.default_rng(args.seed)
     t0 = time.time()

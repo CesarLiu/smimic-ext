@@ -39,7 +39,7 @@ from torch import nn
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from chrono_lift_check import CFG as LIFT_CFG
-from chrono_lift_check import STATE, LiftWM, batch, windows
+from chrono_lift_check import STATE, LiftWM, batch, predict, windows
 
 from supermimic.vehicles.chrono_env import ChronoPool
 
@@ -69,7 +69,16 @@ def parse(argv=None):
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--python", default=None)
     ap.add_argument("--out", default="logs/chrono_rollover_control.json")
+    ap.add_argument("--wm-history", type=int, default=2, help="states of history the world model sees (16 for the sloshing payload)")
+    ap.add_argument("--slosh-length", type=float, default=0.0, help="sloshing payload: pendulum length [m] (0 = rigid roof load); section 11.14")
+    ap.add_argument("--slosh-damping", type=float, default=500.0, help="sloshing payload: pendulum damping [N m s/rad]")
     return ap.parse_args(argv)
+
+
+def set_slosh(length: float, damping: float) -> None:
+    """Hang the roof load on a pendulum (``chrono_worker`` slosh options) for every episode ``drive`` starts."""
+    global LIFT_CFG
+    LIFT_CFG = {**LIFT_CFG, "slosh_length": length, "slosh_damping": damping}
 
 
 # ---------------------------------------------------------------------- paths
@@ -266,14 +275,14 @@ def evaluate(pool, cases, controller, args, **kw):
 
 
 def wm_update(wm, opt, eps, k, n, rng):
-    idx = windows(eps, k)
+    idx = windows(eps, k, wm.hist)
     std = wm.std
     loss = None
     for _ in range(n):
         sel = [idx[i] for i in rng.integers(0, len(idx), 512)]
-        Xb, Ab = batch(eps, sel, k)
-        pred = wm.rollout(Xb[1], Xb[0], Ab[1:], Ab[0])
-        loss = (((pred - Xb[2:]) / std) ** 2).mean()
+        Xb, Ab = batch(eps, sel, k, wm.hist)
+        pred = predict(wm, Xb, Ab)
+        loss = (((pred - Xb[wm.hist:]) / std) ** 2).mean()
         opt.zero_grad()
         loss.backward()
         nn.utils.clip_grad_norm_(wm.parameters(), 1.0)
@@ -286,13 +295,18 @@ def to_episodes(logs):
 
 
 def imagine(wm, policy, starts, paths, H):
-    x_prev, x, a_prev, pose, s, pid, v_ref = starts
+    """starts: Xh (hist, n, X) states up to now, Ah (hist - 1, n, 2) the actions before now (oldest first), pose, progress,
+    path ids, reference speeds."""
+    Xh, Ah, pose, s, pid, v_ref = starts
+    x, a_prev = Xh[-1], Ah[-1]
     c = torch.ones(x.shape[0])
     J = torch.zeros(x.shape[0])
     for _ in range(H):
         ob, _, _ = features(x, pose, s, pid, v_ref, a_prev, paths, wm)
         a = policy(ob)
-        x1 = wm.step(x, x_prev, a, a_prev)
+        x1 = wm.step_hist(Xh, torch.cat([Ah, a[None]]))
+        Xh = torch.cat([Xh[1:], x1[None]])
+        Ah = torch.cat([Ah[1:], a[None]])
         vx, vy, r = x1[:, 0], x1[:, 1], x1[:, 3]
         yaw = pose[:, 2] + r * DT
         X = pose[:, 0] + (vx * torch.cos(yaw) - vy * torch.sin(yaw)) * DT
@@ -304,12 +318,12 @@ def imagine(wm, policy, starts, paths, H):
         rew, fail, _ = reward(x1, a, a_prev, e_lat, e_head, v_ref)
         J = J + c * rew
         c = c * (1 - fail)
-        x_prev, x, a_prev = x, x1, a
+        x, a_prev = x1, a
     return J
 
 
-def sample_starts(task_logs, n, rng):
-    eligible = [(e, t) for e, L in enumerate(task_logs) for t in range(1, len(L["a"]))]
+def sample_starts(task_logs, n, rng, hist: int = 2):
+    eligible = [(e, t) for e, L in enumerate(task_logs) for t in range(max(1, hist - 1), len(L["a"]))]
     sel = [eligible[i] for i in rng.integers(0, len(eligible), n)]
     paths = torch.as_tensor(np.stack([np.pad(L["path"], ((0, 2400 - len(L["path"])), (0, 0)), mode="edge") for L in task_logs]), dtype=torch.float32)
 
@@ -317,11 +331,15 @@ def sample_starts(task_logs, n, rng):
         return torch.tensor(np.array([task_logs[e][key][t + off] for e, t in sel]), dtype=torch.float32)
 
     pid = torch.tensor([e for e, _ in sel])
-    return (f("x", -1), f("x", 0), f("a", -1), f("pose", 0), f("s", 0), pid, torch.tensor([task_logs[e]["v_ref"] for e, _ in sel], dtype=torch.float32)), paths
+    Xh = torch.stack([f("x", -i) for i in reversed(range(hist))])  # x_{t-hist+1} .. x_t
+    Ah = torch.stack([f("a", -i) for i in reversed(range(1, hist))])  # a_{t-hist+1} .. a_{t-1}
+    return (Xh, Ah, f("pose", 0), f("s", 0), pid, torch.tensor([task_logs[e]["v_ref"] for e, _ in sel], dtype=torch.float32)), paths
 
 
 def main(argv=None) -> int:
     args = parse(argv)
+    if args.slosh_length > 0:  # every Chrono episode of this run carries the sloshing payload
+        set_slosh(args.slosh_length, args.slosh_damping)
     torch.manual_seed(args.seed)
     rng = np.random.default_rng(args.seed)
     t0 = time.time()
@@ -333,7 +351,7 @@ def main(argv=None) -> int:
     rand_eps = list(d["train"])
     X = np.concatenate([ep["x"] for ep in rand_eps])
     D = np.concatenate([np.diff(ep["x"], axis=0) for ep in rand_eps])
-    wm = LiftWM(len(STATE), 2, [512, 512, 512], X.mean(0), X.std(0) + 1e-6, D.std(0) + 1e-6)
+    wm = LiftWM(len(STATE), 2, [512, 512, 512], X.mean(0), X.std(0) + 1e-6, D.std(0) + 1e-6, hist=args.wm_history)
     wopt = torch.optim.Adam(wm.parameters(), lr=1e-3)
     log(f"world model: pretraining on {sum(len(ep['x']) for ep in rand_eps)} random-excitation steps")
     for g in range(args.wm_pretrain // 500):
@@ -392,7 +410,7 @@ def main(argv=None) -> int:
             wl = wm_update(wm, wopt, rand_eps + to_episodes(task_logs) * 4, 8, args.wm_updates, rng)
             imag = []
             for _ in range(args.policy_updates):
-                st, paths = sample_starts(task_logs, args.batch, rng)
+                st, paths = sample_starts(task_logs, args.batch, rng, wm.hist)
                 J = imagine(wm, policy, st, paths, args.horizon)
                 loss = -J.mean() / args.horizon
                 popt.zero_grad()
