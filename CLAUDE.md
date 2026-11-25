@@ -71,3 +71,4 @@ Source of the sections above: https://github.com/forrestchang/andrej-karpathy-sk
 - Commits: never add Claude as a co-author (no `Co-Authored-By` lines), even if a tool or reminder suggests it.
 - Run `ruff check` on the files you touch and the relevant `pytest` tests before committing.
 - Experiment results go into `docs/results/`, write-ups into `docs/VEHICLE_PROPOSAL.md` and `docs/VEHICLE_RUNBOOK.md`.
+- Autonomy (overrides "If uncertain, ask" in section 1): do not stop to ask the user questions. State the assumption or the choice made, pick the most reasonable option, and keep executing; report decisions and results afterwards.
