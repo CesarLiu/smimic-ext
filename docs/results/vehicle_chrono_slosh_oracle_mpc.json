@@ -1,0 +1,245 @@
+{
+ "identification": {
+  "roll": {
+   "coef_ay_roll_rate_swing_swingrate": [
+    0.5622030813820744,
+    -95.35294145976353,
+    0.02052040947844367,
+    4.939558081552024,
+    0.31556493320498674
+   ],
+   "r2": 0.7912264794465668
+  },
+  "ltr": {
+   "coef_ay_roll_rate_swing_swingrate": [
+    -0.01686122793598333,
+    -12.062598963161559,
+    -0.22143366284585822,
+    0.0486784850730129,
+    0.0001499632957685775
+   ],
+   "r2": 0.9890172541568881
+  },
+  "front": {
+   "B": 6.964750079770071,
+   "C": 1.3,
+   "D": -15259.47032998183,
+   "E": 0.0
+  },
+  "cornering_stiffness_f": -138161.91635738697,
+  "rear": {
+   "B": 6.3304570641013145,
+   "C": 1.3,
+   "D": -14521.62957001817,
+   "E": 0.0
+  },
+  "cornering_stiffness_r": -119507.11824191929,
+  "samples": 53329,
+  "slosh": {
+   "coef_ay_roll_rate_swing_swingrate": [
+    0.3001104254706374,
+    121.1213387061309,
+    -0.5272663402114821,
+    -14.330934050562748,
+    -1.343001444910989
+   ],
+   "r2": 0.9400159123788235
+  }
+ },
+ "runs": {
+  "w_ltr_500": {
+   "rolled": 0,
+   "off_path": 0,
+   "episodes": 16,
+   "mean_return": 389.8252417255152,
+   "mean_abs_lat": 0.14322101643836999,
+   "two_wheel_lift_s": 0.0,
+   "mean_speed": 14.213141056757502,
+   "max_tilt_deg": 3.5011750122333094,
+   "per_episode": [
+    {
+     "end": "completed",
+     "return": 258.9964675747192,
+     "steps": 161,
+     "mean_abs_lat": 0.17038746970588736,
+     "max_ltr": 0.6726968288421631,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.1018102185205683,
+     "mean_speed": 12.017608796019509,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 186.26218264980338,
+     "steps": 126,
+     "mean_abs_lat": 0.23351537975866224,
+     "max_ltr": 0.7241438031196594,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.1797511976911452,
+     "mean_speed": 15.372530847296565,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 617.376415994615,
+     "steps": 330,
+     "mean_abs_lat": 0.04652731082756553,
+     "max_ltr": 0.614654004573822,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 2.859672552593994,
+     "mean_speed": 13.025188437588575,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 442.4410109826302,
+     "steps": 261,
+     "mean_abs_lat": 0.14962610843147905,
+     "max_ltr": 0.6922928094863892,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.3767511715373018,
+     "mean_speed": 16.471164594272896,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 565.4763227301818,
+     "steps": 305,
+     "mean_abs_lat": 0.05608555469968985,
+     "max_ltr": 0.6331704258918762,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 2.9245257292073648,
+     "mean_speed": 13.000378428144337,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 407.4841078938813,
+     "steps": 245,
+     "mean_abs_lat": 0.16757733403979444,
+     "max_ltr": 0.6952847242355347,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.4218030196596905,
+     "mean_speed": 16.175060485546474,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 488.8418299892013,
+     "steps": 274,
+     "mean_abs_lat": 0.10247289513891292,
+     "max_ltr": 0.6612383723258972,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.1830771537069764,
+     "mean_speed": 12.839489427271696,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 375.0533156771433,
+     "steps": 235,
+     "mean_abs_lat": 0.17375511401749455,
+     "max_ltr": 0.7209581732749939,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.45612106500446,
+     "mean_speed": 14.94592603597934,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 560.9234244537831,
+     "steps": 306,
+     "mean_abs_lat": 0.07023246121317797,
+     "max_ltr": 0.6441144943237305,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 2.9652080215178573,
+     "mean_speed": 12.968536423751454,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 402.83144041509,
+     "steps": 245,
+     "mean_abs_lat": 0.17742164740059246,
+     "max_ltr": 0.6960961818695068,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.407664949157982,
+     "mean_speed": 16.149526255027357,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 529.997823370459,
+     "steps": 305,
+     "mean_abs_lat": 0.11644534180288603,
+     "max_ltr": 0.6670696139335632,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.247983556501611,
+     "mean_speed": 12.562776681067842,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 387.8034064040536,
+     "steps": 262,
+     "mean_abs_lat": 0.2318356030198497,
+     "max_ltr": 0.7080948948860168,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.5011750122333094,
+     "mean_speed": 14.590657089249081,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 304.1889747051095,
+     "steps": 174,
+     "mean_abs_lat": 0.11187646606456382,
+     "max_ltr": 0.6558362245559692,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.068423683615566,
+     "mean_speed": 12.631846831539603,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 224.26630496750207,
+     "steps": 136,
+     "mean_abs_lat": 0.16520345804227593,
+     "max_ltr": 0.6690431237220764,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.0098601732567136,
+     "mean_speed": 16.118598569245755,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 280.00711284544786,
+     "steps": 164,
+     "mean_abs_lat": 0.1332325682199941,
+     "max_ltr": 0.6592085361480713,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.0643239760778123,
+     "mean_speed": 12.491260563619107,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 205.2537269546227,
+     "steps": 128,
+     "mean_abs_lat": 0.1853415506310938,
+     "max_ltr": 0.6769567131996155,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.0389556372073563,
+     "mean_speed": 16.049707442500427,
+     "v_ref": 17.0
+    }
+   ],
+   "solver": {
+    "solves": 3657,
+    "failures": 30,
+    "mean_ms": 49.53583029339641,
+    "p95_ms": 67.62581039965879
+   }
+  }
+ }
+}
