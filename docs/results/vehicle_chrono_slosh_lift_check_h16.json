@@ -1,0 +1,191 @@
+{
+ "args": {
+  "episodes": 400,
+  "heldout": 80,
+  "steps": 300,
+  "workers": 4,
+  "updates": 6000,
+  "hidden": [
+   512,
+   512,
+   512
+  ],
+  "k": 8,
+  "history": 16,
+  "grad_k": [
+   5,
+   15
+  ],
+  "grad_per_regime": 15,
+  "h": 0.05,
+  "seed": 0,
+  "slosh_length": 0.8,
+  "slosh_damping": 500.0,
+  "collect_only": false,
+  "cache": "/tmp/claude-0/-home-user-smimic-ext/7f56e299-37ce-5f31-9c7b-e40d08a3dcf1/scratchpad/slosh2/data.npz",
+  "out": "/tmp/claude-0/-home-user-smimic-ext/7f56e299-37ce-5f31-9c7b-e40d08a3dcf1/scratchpad/slosh2/lift_h16.json"
+ },
+ "state": [
+  "vx",
+  "vy",
+  "vz",
+  "r",
+  "p",
+  "q",
+  "roll_b",
+  "pitch_b",
+  "delta",
+  "s_act",
+  "v_target",
+  "integ",
+  "fz0",
+  "fz1",
+  "fz2",
+  "fz3"
+ ],
+ "outputs": [
+  "roll_b",
+  "p",
+  "vy",
+  "r"
+ ],
+ "regime_steps_train": {
+  "grounded": 53382,
+  "wheel_off": 3894,
+  "two_wheel_lift": 11761,
+  "rolling": 8612
+ },
+ "prediction_error": {
+  "grounded": {
+   "windows": 8084,
+   "nse": 0.0030538183636963367,
+   "nse_median": 0.0005403553368523717,
+   "no_change_nse": 0.14872023463249207,
+   "roll_nse": 0.0002547918993514031,
+   "roll_rate_nse": 0.004210419487208128,
+   "tyre_load_nse": 0.006957372650504112
+  },
+  "wheel_off": {
+   "windows": 669,
+   "nse": 0.02096094749867916,
+   "nse_median": 0.0018601738847792149,
+   "no_change_nse": 0.6035319566726685,
+   "roll_nse": 0.0018621324561536312,
+   "roll_rate_nse": 0.03560100123286247,
+   "tyre_load_nse": 0.04568107798695564
+  },
+  "two_wheel_lift": {
+   "windows": 2368,
+   "nse": 0.031729407608509064,
+   "nse_median": 0.0019025647779926658,
+   "no_change_nse": 0.8019141554832458,
+   "roll_nse": 0.002187032951042056,
+   "roll_rate_nse": 0.0403483584523201,
+   "tyre_load_nse": 0.07364456355571747
+  },
+  "rolling": {
+   "windows": 1527,
+   "nse": 1.3869761228561401,
+   "nse_median": 0.0184202678501606,
+   "no_change_nse": 2.0098037719726562,
+   "roll_nse": 0.011558947153389454,
+   "roll_rate_nse": 0.14274975657463074,
+   "tyre_load_nse": 3.4697506427764893
+  },
+  "lift_transition": {
+   "windows": 887,
+   "nse": 0.042541902512311935,
+   "nse_median": 0.0024125585332512856,
+   "no_change_nse": 1.1908167600631714,
+   "roll_nse": 0.0025549842976033688,
+   "roll_rate_nse": 0.040969397872686386,
+   "tyre_load_nse": 0.10988736897706985
+  }
+ },
+ "gradient": {
+  "5": {
+   "grounded": {
+    "samples": 15,
+    "non_smooth": 13,
+    "tiny": 0,
+    "compared": 2,
+    "cos_median": 0.9941567431816691,
+    "cos_above_0.8": 1.0,
+    "roll_sign_agree": 1.0,
+    "mag_ratio_median": 0.802219207011684
+   },
+   "wheel_off": {
+    "samples": 15,
+    "non_smooth": 6,
+    "tiny": 0,
+    "compared": 9,
+    "cos_median": 0.9868788225029062,
+    "cos_above_0.8": 0.7777777777777778,
+    "roll_sign_agree": 0.8888888888888888,
+    "mag_ratio_median": 0.790014507254432
+   },
+   "two_wheel_lift": {
+    "samples": 15,
+    "non_smooth": 5,
+    "tiny": 0,
+    "compared": 10,
+    "cos_median": 0.9800271181240352,
+    "cos_above_0.8": 1.0,
+    "roll_sign_agree": 0.7,
+    "mag_ratio_median": 0.621434641884338
+   },
+   "rolling": {
+    "samples": 15,
+    "non_smooth": 7,
+    "tiny": 0,
+    "compared": 8,
+    "cos_median": 0.9792020686114449,
+    "cos_above_0.8": 0.75,
+    "roll_sign_agree": 1.0,
+    "mag_ratio_median": 0.6984873917632359
+   }
+  },
+  "15": {
+   "grounded": {
+    "samples": 15,
+    "non_smooth": 5,
+    "tiny": 0,
+    "compared": 10,
+    "cos_median": 0.9895205198039385,
+    "cos_above_0.8": 1.0,
+    "roll_sign_agree": 0.8,
+    "mag_ratio_median": 0.9167341566465159
+   },
+   "wheel_off": {
+    "samples": 15,
+    "non_smooth": 7,
+    "tiny": 0,
+    "compared": 8,
+    "cos_median": 0.9924841093286174,
+    "cos_above_0.8": 0.875,
+    "roll_sign_agree": 0.875,
+    "mag_ratio_median": 1.1428687888167746
+   },
+   "two_wheel_lift": {
+    "samples": 15,
+    "non_smooth": 9,
+    "tiny": 0,
+    "compared": 6,
+    "cos_median": 0.9961748916156035,
+    "cos_above_0.8": 0.8333333333333334,
+    "roll_sign_agree": 1.0,
+    "mag_ratio_median": 1.0186705650720924
+   },
+   "rolling": {
+    "samples": 15,
+    "non_smooth": 6,
+    "tiny": 0,
+    "compared": 9,
+    "cos_median": 0.9498691530476845,
+    "cos_above_0.8": 0.6666666666666666,
+    "roll_sign_agree": 0.8888888888888888,
+    "mag_ratio_median": 0.7650410811984968
+   }
+  }
+ }
+}

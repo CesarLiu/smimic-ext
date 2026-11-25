@@ -23,6 +23,7 @@
 | 精度上限 | 加大回放缓冲区、3 个种子（2 维） | ❌ 缓冲区 300 → 2000 步没有用（5400 次迭代时 0.71 ± 0.14 对 0.63 ± 0.12）；2 维也大幅摆动，种子间差异 0.29–0.76；精度上限远低于 PPO（0.96）。之前的单种子比较都在噪声以内 | §11.7，第 11 步，`docs/results/vehicle_replay_multiseed.json` |
 | ξ 梯度检查 | 世界模型对附着、轮胎刚度、质量、质心的梯度（协同设计、辨识、压力测试的前提） | ✅ 轮胎刚度、质心的闭环梯度可用，沿模型梯度改参数在 79–95% 的情况下真实回报变好（随机方向约 50%）；质量、轮胎刚度的开环梯度近乎完美；μ 在利用率 ≥ 0.6 时也好 | §11.8，第 11 步，`docs/results/vehicle_xi_gradient_check.json` |
 | 接触切换 | 两轮离地附近的世界模型与防侧翻控制（Chrono 多体） | ✅ 世界模型学得会两轮离地（梯度余弦 0.94–0.95，翻滚后变差）；SuperMimic 用约 13 万 Chrono 步学出的控制器跟踪比经典限速准 3–5 倍、总回报持平（冲出车道 3/16 对 1/16）；同样预算的 PPO（原始加三组调参）都远不如它；但带侧倾模型的 MPC 全面更好（回报 409、0 失败）。可行性结论见 §11.13 | §11.12、§11.13，第 14 步，`docs/results/vehicle_chrono_lift_check.json`、`vehicle_chrono_rollover_*` |
+| MPC 的弱点 | 找侧倾模型 MPC 做不好的设定 | ⚠️ 紧急避障、离地窗口、实时预算都不是弱点；晃动的车顶载荷是（侧倾模型 R² 0.24，MPC 365 < SSF 限速 384）。但 SuperMimic 没能利用（2 步 / 16 步历史 351 / 377，仍翻车 2–3 次）；加两个摆状态并看得到摆角的 MPC 回到 390、0 失败 | §11.14，第 14b 步，`docs/results/vehicle_chrono_slosh_*`、`vehicle_chrono_mpc_probes.json` |
 
 ## 环境
 
@@ -568,6 +569,29 @@ env -u PYTHONPATH uv run python scripts/vehicle/chrono_roll_mpc.py --lift-data l
 - A 打印每种工况（四轮着地、单轮离地、两轮离地、翻滚中、离地 / 落地切换）的 8 步误差，以及 k = 5、15 步时转向梯度与 Chrono 重放差分的一致性；
 - B 和 PPO 在同一组 16 段留出路径上评估：回报、冲出车道和翻车次数、横向误差、平均车速、两轮离地总时长；
 - 测试：`tests/test_chrono_env.py` 里的重放确定性测试，需要设置 `SUPERMIMIC_CHRONO_PYTHON`。
+
+### 14b. 侧倾模型 MPC 的弱点：晃动载荷（VEHICLE_PROPOSAL.md §11.14；CPU 约 3 小时）
+
+```bash
+export SUPERMIMIC_CHRONO_PYTHON=$PWD/chrono_env/bin/python
+SL="--slosh-length 0.8 --slosh-damping 500"
+# 采 480 段随机激励数据（同样的种子，载荷挂在 0.8 m 的摆上；记录摆角，只给"知道晃动的 MPC"用；约 6 分钟）
+env -u PYTHONPATH uv run python scripts/vehicle/chrono_lift_check.py $SL --collect-only --cache logs/chrono_slosh_data.npz
+# 普通侧倾模型 MPC 与"知道晃动的 MPC"（多两个摆状态、看得到摆角；各约 4 分钟）
+env -u PYTHONPATH uv run python scripts/vehicle/chrono_roll_mpc.py --lift-data logs/chrono_slosh_data.npz $SL --out logs/chrono_slosh_mpc.json
+env -u PYTHONPATH uv run python scripts/vehicle/chrono_roll_mpc.py --lift-data logs/chrono_slosh_data.npz $SL --slosh-aware --out logs/chrono_slosh_oracle_mpc.json
+# SuperMimic，世界模型看 16 步历史（去掉 --wm-history 即默认的 2 步；约 65 / 50 分钟；开头评估纯追踪、SSF 限速和行为克隆）
+env -u PYTHONPATH uv run python scripts/vehicle/chrono_rollover_control.py --lift-data logs/chrono_slosh_data.npz $SL --wm-history 16 --out logs/chrono_slosh_sm_h16.json
+# 世界模型的预测误差和梯度，16 步历史（--history 2 为对照；各约 10 分钟）
+env -u PYTHONPATH uv run python scripts/vehicle/chrono_lift_check.py $SL --history 16 --grad-per-regime 15 --cache logs/chrono_slosh_data.npz --out logs/chrono_slosh_lift_h16.json
+# 被排除的三个候选（刚性载荷）：紧急避障、离地窗口、实时预算
+env -u PYTHONPATH uv run python scripts/vehicle/mpc_probes/evasive.py 7 logs/chrono_lift_data.npz logs/mpc_probe_evasive.json
+env -u PYTHONPATH uv run python scripts/vehicle/mpc_probes/lift_window_and_budget.py lift logs/chrono_lift_data.npz logs/mpc_probe_lift.json
+env -u PYTHONPATH uv run python scripts/vehicle/mpc_probes/lift_window_and_budget.py rt logs/chrono_lift_data.npz logs/mpc_probe_rt.json
+```
+
+- `docs/results/vehicle_chrono_slosh_baselines.json` 是第一次的普通 MPC 和 SSF 限速评估（当时用临时脚本跑，等价于上面不带 `--slosh-aware` 的命令）；
+- 测试：`tests/test_lift_wm_history.py`（任意历史长度的世界模型），`tests/test_slosh_mpc.py`（摆状态与普通 MPC 一致性）。
 
 ### 15. 下一步（E3/E4）
 
