@@ -24,6 +24,7 @@
 | ξ 梯度检查 | 世界模型对附着、轮胎刚度、质量、质心的梯度（协同设计、辨识、压力测试的前提） | ✅ 轮胎刚度、质心的闭环梯度可用，沿模型梯度改参数在 79–95% 的情况下真实回报变好（随机方向约 50%）；质量、轮胎刚度的开环梯度近乎完美；μ 在利用率 ≥ 0.6 时也好 | §11.8，第 11 步，`docs/results/vehicle_xi_gradient_check.json` |
 | 接触切换 | 两轮离地附近的世界模型与防侧翻控制（Chrono 多体） | ✅ 世界模型学得会两轮离地（梯度余弦 0.94–0.95，翻滚后变差）；SuperMimic 用约 13 万 Chrono 步学出的控制器跟踪比经典限速准 3–5 倍、总回报持平（冲出车道 3/16 对 1/16）；同样预算的 PPO（原始加三组调参）都远不如它；但带侧倾模型的 MPC 全面更好（回报 409、0 失败）。可行性结论见 §11.13 | §11.12、§11.13，第 14 步，`docs/results/vehicle_chrono_lift_check.json`、`vehicle_chrono_rollover_*` |
 | MPC 的弱点 | 找侧倾模型 MPC 做不好的设定 | ⚠️ 紧急避障、离地窗口、实时预算都不是弱点；晃动的车顶载荷是（侧倾模型 R² 0.24，MPC 365 < SSF 限速 384）。但 SuperMimic 没能利用（2 步 / 16 步历史 351 / 377，仍翻车 2–3 次）；加两个摆状态并看得到摆角的 MPC 回到 390、0 失败 | §11.14，第 14b 步，`docs/results/vehicle_chrono_slosh_*`、`vehicle_chrono_mpc_probes.json` |
+| 全主动底盘 | 工业界的维度（10–14 个快速执行器）是否就是 SuperMimic 需要的复杂度 | ⚠️ 维度够高，但多出来的大多是可写的结构，工业界分层降到 ≤ 6 维；Chrono 上四角 ±7 kN 主动悬架让鱼钩离地时间减半，翻车门槛不变（9–10 m/s）。可能的切入点是计算预算和接触丰富的垂向工况，实验 G-AS1 未做 | §11.15，第 14c 步，`docs/results/vehicle_chrono_active_suspension_check.json` |
 
 ## 环境
 
@@ -592,6 +593,15 @@ env -u PYTHONPATH uv run python scripts/vehicle/mpc_probes/lift_window_and_budge
 
 - `docs/results/vehicle_chrono_slosh_baselines.json` 是第一次的普通 MPC 和 SSF 限速评估（当时用临时脚本跑，等价于上面不带 `--slosh-aware` 的命令）；
 - 测试：`tests/test_lift_wm_history.py`（任意历史长度的世界模型），`tests/test_slosh_mpc.py`（摆状态与普通 MPC 一致性）。
+
+### 14c. 主动悬架对侧翻门槛的作用（VEHICLE_PROPOSAL.md §11.15；CPU 约 15 分钟）
+
+```bash
+# 用 Chrono 的解释器直接跑；四角 ±7 kN 作动力，被动 / 侧倾反馈 / 向内倾
+PYTHONPATH=src chrono_env/bin/python scripts/vehicle/chrono_active_suspension_check.py sign
+PYTHONPATH=src chrono_env/bin/python scripts/vehicle/chrono_active_suspension_check.py ramp logs/as_ramp.json
+PYTHONPATH=src chrono_env/bin/python scripts/vehicle/chrono_active_suspension_check.py fish logs/as_fish.json 8,9,10,10.5,11,13,15
+```
 
 ### 15. 下一步（E3/E4）
 

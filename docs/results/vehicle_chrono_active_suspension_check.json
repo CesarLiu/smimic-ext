@@ -1,0 +1,147 @@
+{
+ "ramp_13mps": {
+  "passive": {
+   "ay_at_lift": -6.604760087665604,
+   "max_roll_deg": 71.17791286089998,
+   "rolled": true
+  },
+  "roll_fb": {
+   "ay_at_lift": -5.094129769346684,
+   "max_roll_deg": 70.37910633801256,
+   "rolled": true
+  },
+  "lean_in": {
+   "ay_at_lift": -6.7488524801935945,
+   "max_roll_deg": 70.798532498667,
+   "rolled": true
+  }
+ },
+ "fishhook": {
+  "passive_8": {
+   "lift_s": 0.0,
+   "max_tilt_deg": 4.170959079626114,
+   "rolled": false,
+   "max_ltr": 0.9903321102691957
+  },
+  "roll_fb_8": {
+   "lift_s": 0.0,
+   "max_tilt_deg": 3.1790581369166695,
+   "rolled": false,
+   "max_ltr": 0.9698513914796141
+  },
+  "lean_in_8": {
+   "lift_s": 0.0,
+   "max_tilt_deg": 2.0740308096769815,
+   "rolled": false,
+   "max_ltr": 0.9670264696631178
+  },
+  "passive_9": {
+   "lift_s": 0.84,
+   "max_tilt_deg": 6.3477558673522765,
+   "rolled": false,
+   "max_ltr": 1.0
+  },
+  "roll_fb_9": {
+   "lift_s": 0.76,
+   "max_tilt_deg": 4.78389024261368,
+   "rolled": false,
+   "max_ltr": 1.0
+  },
+  "lean_in_9": {
+   "lift_s": 0.44,
+   "max_tilt_deg": 3.182530887079143,
+   "rolled": false,
+   "max_ltr": 1.0
+  },
+  "passive_10": {
+   "lift_s": 1.42,
+   "max_tilt_deg": 71.14977624993622,
+   "rolled": true,
+   "max_ltr": 1.0
+  },
+  "roll_fb_10": {
+   "lift_s": 1.42,
+   "max_tilt_deg": 69.8879045601211,
+   "rolled": true,
+   "max_ltr": 1.0
+  },
+  "lean_in_10": {
+   "lift_s": 1.58,
+   "max_tilt_deg": 68.94772821381126,
+   "rolled": true,
+   "max_ltr": 1.0
+  },
+  "passive_10.5": {
+   "lift_s": 1.56,
+   "max_tilt_deg": 70.8857577264184,
+   "rolled": true,
+   "max_ltr": 1.0
+  },
+  "roll_fb_10.5": {
+   "lift_s": 1.36,
+   "max_tilt_deg": 71.25226084674718,
+   "rolled": true,
+   "max_ltr": 1.0
+  },
+  "lean_in_10.5": {
+   "lift_s": 1.34,
+   "max_tilt_deg": 69.2797118388438,
+   "rolled": true,
+   "max_ltr": 1.0
+  },
+  "passive_11": {
+   "lift_s": 1.8,
+   "max_tilt_deg": 69.9920113259076,
+   "rolled": true,
+   "max_ltr": 1.0
+  },
+  "roll_fb_11": {
+   "lift_s": 1.84,
+   "max_tilt_deg": 70.48256683152721,
+   "rolled": true,
+   "max_ltr": 1.0
+  },
+  "lean_in_11": {
+   "lift_s": 1.62,
+   "max_tilt_deg": 71.34003129553034,
+   "rolled": true,
+   "max_ltr": 1.0
+  },
+  "passive_13": {
+   "lift_s": 2.54,
+   "max_tilt_deg": 70.02286708584762,
+   "rolled": true,
+   "max_ltr": 1.0
+  },
+  "roll_fb_13": {
+   "lift_s": 3.02,
+   "max_tilt_deg": 71.51510166261592,
+   "rolled": true,
+   "max_ltr": 1.0
+  },
+  "lean_in_13": {
+   "lift_s": 2.74,
+   "max_tilt_deg": 70.07350138444495,
+   "rolled": true,
+   "max_ltr": 1.0
+  },
+  "passive_15": {
+   "lift_s": 1.22,
+   "max_tilt_deg": 70.05894413269796,
+   "rolled": true,
+   "max_ltr": 1.0
+  },
+  "roll_fb_15": {
+   "lift_s": 1.16,
+   "max_tilt_deg": 69.56531190620045,
+   "rolled": true,
+   "max_ltr": 1.0
+  },
+  "lean_in_15": {
+   "lift_s": 1.3,
+   "max_tilt_deg": 69.31824103959933,
+   "rolled": true,
+   "max_ltr": 1.0
+  }
+ }
+}

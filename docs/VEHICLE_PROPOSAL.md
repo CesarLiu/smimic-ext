@@ -1209,6 +1209,7 @@ GPU 的用途不是把原实验放大（§11.1），而是**多种子、多配�
 **一句话**（2026-11-25 修正）：在测过的所有车辆控制任务里，SuperMimic 都没有成为最好的方法。仿真便宜时，PPO 和 NMPC 胜过它；仿真昂贵、动力学超出单轨模型（车轮离地、侧翻）时，它在样本效率上明显胜过 PPO，但只要加一个可辨识的侧倾自由度，模型预测控制就全面胜过它。它站得住的用途有两个：一是推理代价必须极低的场合（策略约 0.1 ms，MPC 30–45 ms）；二是把世界模型当作可微的车辆代理，做设计和辨识（§11.8）。要让 SuperMimic 在车辆控制上胜出，需要找到"低维模型辨识不出来"的动力学。§11.14 找到了一个（晃动的车顶载荷，一个看不到的状态）：普通侧倾模型 MPC 在这里输给简单基线，但 SuperMimic 也没有赢，它的世界模型同样被隐藏状态拖累、被策略利用；而工程师只要知道载荷会晃，加两个状态就把 MPC 补回来了。所以"低维模型辨识不出来"还不够，还要求"人也不容易写出它的结构"；目前没有找到这样的车辆设定。
 
 **如果继续，下一步**（按重要性；PPO 调参和侧倾模型 MPC 已于 2026-11-25 完成，见 §11.12）：
+0. 全主动底盘（转向、后轮转向、四角主动悬架、驱动制动）维度够高，但主动悬架对侧翻的控制权很小，多出来的维度大多是可写的结构；可能的切入点是计算预算和接触丰富的垂向工况，最小实验见 §11.15 的 G-AS1；
 1. ~~找一个侧倾模型 MPC 做不好的设定~~（已做，§11.14：找到晃动载荷这一个，但 SuperMimic 没能利用，知道晃动的 MPC 又把它补上了）。接着要做的是给 SuperMimic 的世界模型加集成和不确定性惩罚（§10.6 在底盘任务上有效过），在晃动载荷上重跑；以及给 MPC 配一个摆角观测器，替代特权摆角；
 2. 走"可微车辆代理"这条线（§11.8、§11.9 的方向 1 和 4）：协同设计和辨识，与黑盒优化比较仿真调用次数；
 3. 多种子复现 §11.12 B；
@@ -1265,10 +1266,62 @@ GPU 的用途不是把原实验放大（§11.1），而是**多种子、多配�
 
 **局限**：单种子；评估只有 16 段；只试了一种摆长和阻尼；"知道晃动的 MPC"用的是特权摆角，没有观测器版本；SuperMimic 的世界模型没有加集成或不确定性惩罚。
 
+### 11.15 工业界的全主动底盘：维度够高，是否适合 SuperMimic？（2026-11-25）
+
+**问题**：量产车已经把转向、后轮转向、四角全主动悬架、驱动和制动交给一个运动控制器统一调度。维度比本项目试过的都高，这是否就是 SuperMimic 需要的复杂度？
+
+**工业界现状**（公开报道，多为厂商宣传口径，未独立验证）：
+
+| 系统 | 执行器与公开参数 | 控制架构 |
+|---|---|---|
+| 蔚来"天行"（ET9、ES9） | 线控转向、后轮转向、四角全主动悬架（ClearMotion 48 V 一体式电液作动器，每角独立电机泵，峰值力约 7 kN，报道的主动响应频率 40 Hz）、驱动和制动；2026 年 9 月量产累计 2 万套 | VMC 运动管理中枢：智驾只给目标轨迹，由它分发到各执行器 |
+| 华为途灵"龙行"（尊界 S800） | 800 V 电液全主动悬架，单轮举升力 > 12 kN、举升速度 400 mm/s；三重冗余线控转向；道路预瞄配合后轮转向 | XMC 统一控制车身、动力、悬架、转向、制动、热管理六个域，千兆以太网，时延 < 1 ms。宣传：过弯侧倾角降 85%，起步俯仰角降 75% |
+| 比亚迪"云辇" | DiSus-X 四角独立液压（仰望 U9，可三轮行驶、原地跳起）；DiSus-Z 电磁主动悬架（仰望 U7） | 未公开 |
+| Mercedes E-Active Body Control | 48 V 电液，每角控制弹簧力和阻尼力，配空气弹簧和路面预瞄；"Curve"模式弯中向内倾 | — |
+| Porsche Active Ride | 每个减振器带电机泵，可以不要稳定杆；弯中向内倾 | — |
+| ZF cubiX（供应商软件） | 协调前轮转向、后轮转向、制动、主动悬架 | 对上层提供统一接口 |
+
+合起来：约 10–14 个快速执行器（前后轮转向、4 个悬架力、2–4 个驱动扭矩、4 个制动），30–40 个状态（车身 6 自由度、4 个簧下质量、4 个轮速、转向和执行器状态、轮胎瞬态），外加预瞄的路面高度，控制频率 100 Hz–1 kHz。
+
+**工业界怎么控制**：分层。运动控制器先算出期望的广义力（纵向力、侧向力、横摆力矩，以及垂向力、侧倾力矩、俯仰力矩，至多 6 维），再由控制分配（通常是二次规划）分到各执行器。垂向舒适性用天棚控制或带预瞄的 LQR / MPC，近似线性。研究中，防侧翻用 MPC 算侧倾力矩、下层分到四角悬架（Ayalew 等），或用带 LTR 预测的 NMPC 驱动主动空气悬架（Chalmers、TU Delft 的学位论文）。学习方法多用在单个子系统上：主动悬架舒适性（PPO，含与悬架参数协同设计的工作）、扭矩矢量和牵引力控制、扭矩矢量与后轮转向的协调。**没有找到**在同一个全车模型上同时控制横、纵、垂三个方向，并与 MPC 正面比较的学习方法。
+
+**物理检查 G-AS0**（`scripts/vehicle/chrono_active_suspension_check.py`，`docs/results/vehicle_chrono_active_suspension_check.json`）：给 §11.12 的 HMMWV（车顶 800 kg）每个减振器加一个 ±7 kN 的作动力（蔚来公开的量级），每个控制步（50 Hz）更新。HMMWV 的减振器用力函数计算阻尼力，会忽略 `SetActuatorForce`，所以在原力函数外再包一层，加上作动力。比较三种模式：被动；侧倾反馈（按侧倾角和侧倾角速度抵抗侧倾）；向内倾（再加一项与侧向加速度成正比的向内倾斜）。
+- **静止**：左右反向 ±7 kN 让车身倾斜 ±1.9°，LTR 变化 ∓0.05。
+- **13 m/s 缓慢加转向**：两轮离地时的侧向加速度，被动 6.6 m/s²，向内倾 6.75（+2%），侧倾反馈 5.1（更早离地，原因未查）。
+- **鱼钩**：
+
+| 车速 | 被动 | 侧倾反馈 | 向内倾 |
+|---|---|---|---|
+| 8 m/s | 不离地，最大倾斜 4.2° | 不离地，3.2° | 不离地，2.1° |
+| 9 m/s | 离地 0.84 s，6.4° | 0.76 s，4.8° | **0.44 s，3.2°** |
+| 10 / 10.5 / 11 / 13 / 15 m/s | 翻车 | 翻车 | 翻车 |
+
+- **解释**：悬架力是车身和车轮之间的内力，不改变地面上的倾覆力矩 m·a_y·h，只能靠倾斜车身把质心挪几厘米。所以主动悬架能明显改善瞬态侧倾（离地时间减半、最大倾斜减半），但翻车门槛（这里在 9 和 10 m/s 之间）几乎不动。这与工业宣传一致：它们宣传的是侧倾角和俯仰角降低（舒适和姿态），不是侧翻门槛。
+
+**判断**：
+1. **维度确实高**：10–14 个快速执行器，是 C1（5 维）的两倍以上。但 SuperMimic 在车辆上缺的不是维度。§10.5–§10.8 里维度变大，并没有让它相对 PPO 的样本效率变好；§11.12–§11.14 里它输给 MPC，是因为 MPC 用的低维模型足够准，或者工程师加一个状态就能补准。
+2. **多出来的维度在物理上大多是熟悉的**：垂向动力学近似线性，14 自由度整车模型是教科书内容；悬架对侧向和横摆的作用经过轴荷转移，结构也写得出来。工业界用分层和分配把它降到不超过 6 维的虚拟输入，每层近似线性。这正是 §11.14 所说"人写得出结构"的情形，MPC 在这里有优势。
+3. **对本项目已有的侧翻任务，主动悬架的控制权很小**（G-AS0）：加进去不会改变 §11.12 的胜负。
+4. **可能给 SuperMimic 留出空间的，是全主动底盘里两个具体的点**，不是"维度高"本身：
+   - **计算预算**：14 自由度、10 个以上输入、100 Hz–1 kHz 的集中式 NMPC，在车载硬件上算不动，量产系统只能分层，分层会丢掉横、纵、垂之间的耦合（例如用悬架力调轴荷，给后轴多借一点侧向附着）。0.1 ms 的策略可以去比"实时可行的分层控制器"，离线的集中式 NMPC 作为上界。
+   - **接触丰富的垂向工况**：越野坑洼、跳跃起落（例如 DART-S 在起跳前用主动悬架调俯仰，BeamNG 仿真）、车轮跳离地面后该角作动器失去作用。这些由接触切换主导，低维模型难写，与 §11.12 中"世界模型学得会两轮离地"的结果相符。
+
+   这两点目前都只是假设。
+
+**如果做，最小的实验 G-AS1**（约 1–2 天 CPU）：
+- **设定**：Chrono HMMWV，刚性地面加随机起伏和坑（需要新增高度图地面），带预瞄，任务是较高车速下通过并跟踪路径；动作 6 维（转向、加速、4 个悬架力）。
+- **对照**：
+  - 工业分层：§11.12 的侧倾模型 MPC 管路径，带预瞄的天棚控制管悬架，再加分配；
+  - 集中式 NMPC：离线、不限时间，作为上界；
+  - 同样预算的 PPO；
+  - SuperMimic。
+- **关卡**：在相同的 Chrono 步数下，SuperMimic 的回报高于工业分层基线，且失败数不多于它。不通过就停止车辆控制方向，只保留 §11.8 的可微代理方向。
+
 ---
 
 ## 参考
 
+- §11.15 的工业资料（2026-11-25 检索）：蔚来天行 / ClearMotion（[Vehicle Dynamics International](https://www.vehicledynamicsinternational.com/news/ride-comfort/nio-places-order-for-proactive-suspension-technology.html)、[China EV Home](https://chinaevhome.com/2026/09/07/clearmotion-hits-20k-unit-mark-for-nio-et9-and-es9-active-suspension/)、[新浪汽车](https://auto.sina.cn/2026-07-13/detail-inihspyt4166697.d.html)）；华为途灵龙行（[汽车之家](https://chejiahao.m.autohome.com.cn/info/25876809)、[第一财经](https://www.yicai.com/news/103260113.html)）；比亚迪云辇（[Motor Authority](https://www.motorauthority.com/news/1139330_byd-s-disus-active-suspension-can-make-a-car-jump-in-the-air)、[The Star](https://www.thestar.com.my/tech/tech-news/2025/04/08/this-car-can-climb-stairs-without-jolting-its-driver-and-passengers)）；[Mercedes E-Active Body Control（Bilstein）](https://bilstein.com/en/perhaps-the-worlds-most-intelligent-suv-suspension/)；[Porsche Active Ride](https://newsroom.porsche.com/en/press-kits/taycan/Porsche-Active-Ride.html)；[中央域控与 ZF cubiX（市场报告）](https://www.giiresearch.com/report/rinc2074809-central-domain-control-powertrain-chassis-body.html)；研究：[DART-S（arXiv:2608.20275）](https://arxiv.org/abs/2608.20275)、[全车主动悬架的 RL 协同设计（arXiv:2512.03891）](https://arxiv.org/abs/2512.03891)、[主动悬架的预测式侧倾控制（Ayalew 等）](https://cecas.clemson.edu/ayalew/Papers/Vehicle%20Systems%20Dynamics%20and%20Control/Papers/Predictive%20roll,%20handling%20and%20ride%20control%20of%20vehicles%20via%20active%20suspensions/06859037.pdf)、[带预测 LTR 的防侧翻 MPC（TU Delft）](https://repository.tudelft.nl/record/uuid:b2f53348-06b0-41a2-ab1e-2269a241132f)
 - SuperMimic：arXiv:2610.28480（§3、§4.2–4.3、§6、Table A.2、Appendix B/D）
 - 本仓库：[`RESEARCH_DIRECTIONS.md`](RESEARCH_DIRECTIONS.md)（§6.1 条件清单、D1/D2/D3/D7b）、[`GENERALIZATION.md`](GENERALIZATION.md)（裕度协议）、[`EXPERIMENTS.md`](EXPERIMENTS.md)（`gmax_mode` 修复）
 - Nachkov et al., *Autonomous Vehicle Controllers From End-to-End Differentiable Simulation*, IROS 2025：https://arxiv.org/abs/2409.07965
