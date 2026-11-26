@@ -1,0 +1,182 @@
+{
+ "road_rms_0.04": {
+  "signs": {
+   "left_up": {
+    "roll_deg": 1.850031070209203,
+    "pitch_deg": 0.168533200024011
+   },
+   "front_up": {
+    "roll_deg": -0.01490435191279984,
+    "pitch_deg": -0.9689294850005783
+   }
+  },
+  "geometry": {
+   "a": 1.6099534397401771,
+   "b": 1.7021253244068277,
+   "track": 1.7171700806630943
+  },
+  "flat_passive": {
+   "rms_az": 0.0,
+   "rms_roll_rate": 0.005805631127830475,
+   "rms_pitch_rate": 0.0006388723911588957,
+   "tyre_load_cv": 0.028737740411165395,
+   "min_tyre_load_n": 7104.792205862682,
+   "mean_abs_force": 0.0,
+   "steps_per_s": 401.45642398885747
+  },
+  "rough_passive": {
+   "rms_az": 2.1598393117348795,
+   "rms_roll_rate": 0.10252009528264958,
+   "rms_pitch_rate": 0.1548674903802169,
+   "tyre_load_cv": 0.5808411323342968,
+   "min_tyre_load_n": 0.0,
+   "mean_abs_force": 0.0,
+   "steps_per_s": 291.4140369390823,
+   "max_road_height_error_m": 0.010914826655454311
+  },
+  "rough_active_zero": {
+   "rms_az": 2.1598393117348795,
+   "rms_roll_rate": 0.10252009528264958,
+   "rms_pitch_rate": 0.1548674903802169,
+   "tyre_load_cv": 0.5808411323342968,
+   "min_tyre_load_n": 0.0,
+   "mean_abs_force": 0.0,
+   "steps_per_s": 259.7683704310877,
+   "max_road_height_error_m": 0.010914826655454311
+  },
+  "rough_skyhook_1": {
+   "rms_az": 1.8681877972327956,
+   "rms_roll_rate": 0.0864455324858657,
+   "rms_pitch_rate": 0.12191401148065108,
+   "tyre_load_cv": 0.44094854423732444,
+   "min_tyre_load_n": -1411.7379366005573,
+   "mean_abs_force": 0.21169456766979153,
+   "steps_per_s": 243.70333622208824,
+   "max_road_height_error_m": 0.011535534433386715
+  },
+  "rough_skyhook_2": {
+   "rms_az": 1.9173708428851481,
+   "rms_roll_rate": 0.08024859519593203,
+   "rms_pitch_rate": 0.10296027789323142,
+   "tyre_load_cv": 0.55841830452061,
+   "min_tyre_load_n": 0.0,
+   "mean_abs_force": 0.3626386902117228,
+   "steps_per_s": 261.81665208060895,
+   "max_road_height_error_m": 0.01096063488617725
+  },
+  "rough_skyhook_1_preview_15": {
+   "rms_az": 1.5620613363602154,
+   "rms_roll_rate": 0.0750970630394528,
+   "rms_pitch_rate": 0.0927449671736071,
+   "tyre_load_cv": 0.4089774731231172,
+   "min_tyre_load_n": 0.0,
+   "mean_abs_force": 0.3621660588546803,
+   "steps_per_s": 261.2200945599208,
+   "max_road_height_error_m": 0.011159796847793647
+  },
+  "rough_skyhook_1_preview_30": {
+   "rms_az": 1.4111504279041722,
+   "rms_roll_rate": 0.0721513842770389,
+   "rms_pitch_rate": 0.07597088871729475,
+   "tyre_load_cv": 0.387103156896156,
+   "min_tyre_load_n": -2319.5099522882965,
+   "mean_abs_force": 0.510648351319839,
+   "steps_per_s": 270.82438909340635,
+   "max_road_height_error_m": 0.010867475295979472
+  },
+  "gate": {
+   "rms_az_reduction": 0.34664101156179383,
+   "passed": true
+  }
+ },
+ "road_rms_0.02": {
+  "signs": {
+   "left_up": {
+    "roll_deg": 1.850031070209203,
+    "pitch_deg": 0.168533200024011
+   },
+   "front_up": {
+    "roll_deg": -0.01490435191279984,
+    "pitch_deg": -0.9689294850005783
+   }
+  },
+  "geometry": {
+   "a": 1.6099534397401771,
+   "b": 1.7021253244068277,
+   "track": 1.7171700806630943
+  },
+  "flat_passive": {
+   "rms_az": 0.0,
+   "rms_roll_rate": 0.005805631127830475,
+   "rms_pitch_rate": 0.0006388723911588957,
+   "tyre_load_cv": 0.028737740411165395,
+   "min_tyre_load_n": 7104.792205862682,
+   "mean_abs_force": 0.0,
+   "steps_per_s": 379.6266067055815
+  },
+  "rough_passive": {
+   "rms_az": 1.1841778823241715,
+   "rms_roll_rate": 0.06165274883012472,
+   "rms_pitch_rate": 0.0770632603457921,
+   "tyre_load_cv": 0.3421195296070004,
+   "min_tyre_load_n": 0.0,
+   "mean_abs_force": 0.0,
+   "steps_per_s": 335.1556393411939,
+   "max_road_height_error_m": 0.010258396445009761
+  },
+  "rough_active_zero": {
+   "rms_az": 1.1841778823241715,
+   "rms_roll_rate": 0.06165274883012472,
+   "rms_pitch_rate": 0.0770632603457921,
+   "tyre_load_cv": 0.3421195296070004,
+   "min_tyre_load_n": 0.0,
+   "mean_abs_force": 0.0,
+   "steps_per_s": 290.08394307184994,
+   "max_road_height_error_m": 0.010258396445009761
+  },
+  "rough_skyhook_1": {
+   "rms_az": 1.0301105701095452,
+   "rms_roll_rate": 0.049724184644879287,
+   "rms_pitch_rate": 0.05907619232716993,
+   "tyre_load_cv": 0.3217520219323838,
+   "min_tyre_load_n": 0.0,
+   "mean_abs_force": 0.105117210493245,
+   "steps_per_s": 260.1464004695995,
+   "max_road_height_error_m": 0.010156131341870435
+  },
+  "rough_skyhook_2": {
+   "rms_az": 1.038338724423487,
+   "rms_roll_rate": 0.04417713713644977,
+   "rms_pitch_rate": 0.04997785371572397,
+   "tyre_load_cv": 0.3244290944849274,
+   "min_tyre_load_n": 0.0,
+   "mean_abs_force": 0.18204471851115084,
+   "steps_per_s": 287.11522446099355,
+   "max_road_height_error_m": 0.010261233497536493
+  },
+  "rough_skyhook_1_preview_15": {
+   "rms_az": 0.9813836281827385,
+   "rms_roll_rate": 0.04781315712777443,
+   "rms_pitch_rate": 0.042185096515123685,
+   "tyre_load_cv": 0.31122288353401634,
+   "min_tyre_load_n": 0.0,
+   "mean_abs_force": 0.18205818566784546,
+   "steps_per_s": 288.83393008616355,
+   "max_road_height_error_m": 0.010194606181830441
+  },
+  "rough_skyhook_1_preview_30": {
+   "rms_az": 0.7183171379943722,
+   "rms_roll_rate": 0.03871547585633406,
+   "rms_pitch_rate": 0.028117287740253672,
+   "tyre_load_cv": 0.3017910292952432,
+   "min_tyre_load_n": 0.0,
+   "mean_abs_force": 0.2776381853496772,
+   "steps_per_s": 272.16308392745213,
+   "max_road_height_error_m": 0.01027857310806187
+  },
+  "gate": {
+   "rms_az_reduction": 0.39340436203339657,
+   "passed": true
+  }
+ }
+}

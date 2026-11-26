@@ -64,8 +64,13 @@ class ChronoPool:
     def reset(self, cfgs: list[dict], ids=None) -> list[dict]:
         return self._all([{"op": "reset", "cfg": c} for c in cfgs], ids)
 
-    def step(self, s_cmd, a_cmd, ids=None) -> list[dict]:
-        return self._all([{"op": "step", "s_cmd": float(s), "a_cmd": float(a)} for s, a in zip(s_cmd, a_cmd)], ids)
+    def step(self, s_cmd, a_cmd, ids=None, f_cmd=None) -> list[dict]:
+        """f_cmd: per vehicle four normalised suspension force commands (``chrono_worker`` option ``active_susp``)."""
+        msgs = [{"op": "step", "s_cmd": float(s), "a_cmd": float(a)} for s, a in zip(s_cmd, a_cmd)]
+        if f_cmd is not None:
+            for m, f in zip(msgs, f_cmd):
+                m["f_cmd"] = [float(x) for x in f]
+        return self._all(msgs, ids)
 
     def rollout(self, jobs: list[tuple[dict, list]], ids=None) -> list[dict]:
         """One (cfg, actions) job per worker: reset with cfg, apply the actions, return {"obs0", "obs"} (cut where the

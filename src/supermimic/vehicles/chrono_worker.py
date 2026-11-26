@@ -22,6 +22,14 @@ how finite differences are taken without copying Chrono's state.
 Options for wheel-lift studies (defaults keep the G1 setting): ``roof_kg`` (a box rigidly fixed 1.6 m above the
 chassis reference frame), ``powertrain`` "map" (map-based engine and gearbox; the shafts model starts in first gear
 and brakes hard at speed), ``chassis_collision`` (the chassis lands when it rolls), ``max_roll`` [rad].
+
+Options for the active-chassis study (section 11.15, G-AS1): ``heightmap`` (a BMP written by
+``supermimic.vehicles.road``, placed by ``hm_center``, ``hm_size``, ``hm_range``) replaces the flat rigid patch;
+``active_susp`` adds a force actuator in parallel with each of the four shocks (``susp_fmax`` [N], first-order lag
+``susp_tau`` [s]), commanded by ``f_cmd`` (four values in [-1, 1], FL FR RL RR, positive = push the body up) in the
+step message or as action elements 3-6 of a rollout. Either option adds observations: suspension deflection and
+deflection rate ``dz*`` / ``dzd*`` (relative to the settled state), actuator force ``fa*`` (normalised), road height
+under each wheel ``zr*``, and the body's vertical acceleration ``az``.
 """
 
 from __future__ import annotations
@@ -56,7 +64,24 @@ DEFAULTS = {
     # its centre at the same static height as the rigid load; 0 = rigid
     "slosh_length": 0.0, "slosh_damping": 2000.0,
     "max_roll": 0.7,  # [rad] the observation is not ok beyond this roll
+    "heightmap": None, "hm_center": [110.0, 0.0], "hm_size": [240.0, 40.0], "hm_range": [-0.25, 0.25],
+    "active_susp": False, "susp_fmax": 7000.0, "susp_tau": 0.02,
 }
+
+
+def _active_functor(chrono):
+    class Active(chrono.ForceFunctor):
+        """The shock's own force plus an actuator force (the HMMWV shocks use a force functor, which ignores
+        ``ChLinkTSDA.SetActuatorForce``)."""
+
+        def __init__(self, orig):
+            super().__init__()
+            self.orig, self.F = orig, 0.0
+
+        def evaluate(self, time, rest_length, length, vel, link):
+            return self.orig.evaluate(time, rest_length, length, vel, link) + self.F
+
+    return Active
 
 
 class Sim:
@@ -120,13 +145,28 @@ class Sim:
                 link = chrono.ChLinkLockLock()
                 link.Initialize(roof, ch, chrono.ChFramed(roof.GetPos(), roof.GetRot()))
                 sys_.Add(link)
+        self.act = []
+        if c["active_susp"]:
+            Active = _active_functor(chrono)
+            for ax in (0, 1):
+                dw = veh.CastToChDoubleWishbone(h.GetVehicle().GetSuspension(ax))
+                for side in (veh.LEFT, veh.RIGHT):
+                    sh = dw.GetShock(side)
+                    a = Active(sh.GetForceFunctor())
+                    sh.RegisterForceFunctor(a)
+                    self.act.append(a)
+        self.f_cmd = [0.0] * 4
         if c["terrain"] == "rigid":
             terrain = veh.RigidTerrain(sys_)
             mat = chrono.ChContactMaterialSMC()
             mat.SetFriction(c["friction"])
             mat.SetRestitution(0.01)
             mat.SetYoungModulus(2e7)
-            terrain.AddPatch(mat, chrono.CSYSNORM, c["size"], c["size"])
+            if c["heightmap"]:
+                (cx, cy), (sx, sy), (h0, h1) = c["hm_center"], c["hm_size"], c["hm_range"]
+                terrain.AddPatch(mat, chrono.ChCoordsysd(chrono.ChVector3d(cx, cy, 0), chrono.QUNIT), c["heightmap"], sx, sy, h0, h1)
+            else:
+                terrain.AddPatch(mat, chrono.CSYSNORM, c["size"], c["size"])
             terrain.Initialize()
         else:
             terrain = veh.SCMTerrain(sys_)
@@ -141,13 +181,19 @@ class Sim:
         self.throttle = self.brake = 0.0
         self.z0 = None
         self.wall = 0.0
+        self.dz0 = None
         # settle: the vehicle is dropped onto the ground; drive straight toward the initial speed before handing over
         for _ in range(round(c["settle"] / c["dt"])):
             self.step(0.0, max(-2.0, min(2.0, 1.5 * (c["v"] - self.v.GetSpeed()))))
         self.z0 = None
         self.v_target = c["v"]
         self.wall = 0.0
+        if self.act or c["heightmap"]:
+            self.dz0 = [self._shock(i).GetLength() for i in range(4)]
         return self.observe()
+
+    def _shock(self, i):
+        return self.veh.CastToChDoubleWishbone(self.v.GetSuspension(i // 2)).GetShock(self.veh.LEFT if i % 2 == 0 else self.veh.RIGHT)
 
     def info(self) -> dict:
         v, veh = self.v, self.veh
@@ -159,7 +205,8 @@ class Sim:
             return d.x * ex.x + d.y * ex.y + d.z * ex.z
 
         I = v.GetInertia().to_numpy()
-        return {"mass": v.GetMass(), "I_z": float(I[2][2]), "a": sp(0) - com.x, "b": com.x - sp(1),
+        dl = v.GetSpindlePos(0, veh.LEFT) - v.GetSpindlePos(0, veh.RIGHT)
+        return {"mass": v.GetMass(), "I_z": float(I[2][2]), "a": sp(0) - com.x, "b": com.x - sp(1), "track": math.hypot(dl.x, dl.y),
                 "wheelbase": v.GetWheelbase(), "max_steer": v.GetMaxSteeringAngle(), "min_turn_radius": v.GetMinTurningRadius()}
 
     def observe(self) -> dict:
@@ -191,11 +238,22 @@ class Sim:
             obs[f"fz{i}"] = v.GetTire(a, side).ReportTireForce(self.terrain).force.z
         if self.slosh is not None:
             obs["slosh"] = self.slosh.GetAngle()  # diagnostics only: no controller or world model sees it
+        if self.dz0 is not None:
+            obs["az"] = acc.z
+            for i in range(4):
+                sh = self._shock(i)
+                obs[f"dz{i}"] = self.dz0[i] - sh.GetLength()  # compression positive
+                obs[f"dzd{i}"] = -sh.GetVelocity()
+                obs[f"fa{i}"] = self.act[i].F / self.c["susp_fmax"] if self.act else 0.0
+                sp = v.GetSpindlePos(i // 2, veh.LEFT if i % 2 == 0 else veh.RIGHT)
+                obs[f"zr{i}"] = self.terrain.GetHeight(self.chrono.ChVector3d(sp.x, sp.y, sp.z + 1.0))
         obs["ok"] = all(math.isfinite(x) for x in obs.values()) and abs(roll) < self.c["max_roll"]
         return obs
 
-    def step(self, s_cmd: float, a_cmd: float) -> dict:
+    def step(self, s_cmd: float, a_cmd: float, f_cmd=None) -> dict:
         c = self.c
+        if f_cmd is not None:
+            self.f_cmd = [max(-1.0, min(1.0, float(f))) for f in f_cmd]
         dt, h = c["dt"], c["step"]
         n = round(dt / h)
         s_cmd = max(-1.0, min(1.0, float(s_cmd)))
@@ -214,6 +272,10 @@ class Sim:
             self.inputs.m_steering = self.s_act
             self.inputs.m_throttle = self.throttle
             self.inputs.m_braking = self.brake
+            if self.act:
+                alpha = 1.0 - math.exp(-h / c["susp_tau"])
+                for a, f in zip(self.act, self.f_cmd):
+                    a.F += alpha * (c["susp_fmax"] * f - a.F)
             t = self.sys.GetChTime()
             self.terrain.Synchronize(t)
             self.hmmwv.Synchronize(t, self.inputs, self.terrain)
@@ -244,11 +306,11 @@ def main() -> int:
             if op == "reset":
                 send(sim.reset(msg.get("cfg", {})))
             elif op == "step":
-                send(sim.step(msg["s_cmd"], msg["a_cmd"]))
+                send(sim.step(msg["s_cmd"], msg["a_cmd"], msg.get("f_cmd")))
             elif op == "rollout":
                 obs0, rows = sim.reset(msg.get("cfg", {})), []
-                for s_cmd, a_cmd in msg["actions"]:
-                    rows.append(sim.step(s_cmd, a_cmd))
+                for act in msg["actions"]:
+                    rows.append(sim.step(act[0], act[1], act[2:6] if len(act) > 2 else None))
                     if not rows[-1]["ok"]:
                         break
                 send({"obs0": obs0, "obs": rows})
