@@ -170,15 +170,16 @@ def road_input(roads, rid, poses):
 class Hierarchical:
     """Path: the roll-model MPC; suspension: passive, or corner skyhook + road-preview feedforward."""
 
-    def __init__(self, mpc, roads, preview: bool):
-        self.mpc, self.roads, self.preview = mpc, roads, preview
+    def __init__(self, mpc, roads, preview: bool, v_scale: float = 1.0):
+        self.mpc, self.roads, self.preview, self.v_scale = mpc, roads, preview, v_scale  # v_scale: drive at this share of v_ref
 
     def reset(self, n):
         if self.mpc is not None:
             self.mpc.reset(n)
 
     def act(self, i, o, path, j, v_ref, a_prev, rid):
-        a = self.mpc.act(i, o, path, j, v_ref, a_prev[:2]) if self.mpc is not None else crc.baseline_action("ssf_limiter", o, path, j, v_ref)
+        v = v_ref * self.v_scale
+        a = self.mpc.act(i, o, path, j, v, a_prev[:2]) if self.mpc is not None else crc.baseline_action("ssf_limiter", o, path, j, v)
         f = np.clip(skyhook(o, 1.0) + preview_ff(o, self.roads.geo, self.roads.items[rid][0], K_FF), -1, 1) if self.preview else np.zeros(4)
         return [*a, *f.tolist()]
 
@@ -367,6 +368,7 @@ def parse(argv=None):
     ap.add_argument("--skip-baselines", action="store_true", help="do not re-evaluate the baselines (they do not depend on the SuperMimic options)")
     ap.add_argument("--eval-checkpoint", default=None, help="only evaluate this checkpoint and the two preview baselines on a fresh set")
     ap.add_argument("--fresh-paths", type=int, default=16, help="paths (x 2 speeds, each on its own new road) of the fresh set")
+    ap.add_argument("--slow-scale", type=float, default=0.87, help="fresh set: also the hierarchical baseline at this share of the reference speed")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--python", default=None)
     ap.add_argument("--out", default="logs/chrono_gas1.json")
@@ -393,7 +395,8 @@ def eval_checkpoint(args, pool, geo, ident, log) -> int:
     policy.load_state_dict(ck["policy"])
     rep = {"checkpoint": args.eval_checkpoint, "cases": len(cases)}
     for name, ctl, kw in (("hierarchical", Hierarchical(RollMPC(ident), roads, True), {}), ("ssf_preview", Hierarchical(None, roads, True), {}),
-                          ("supermimic", None, {"policy": policy, "wm": wm})):
+                          ("supermimic", None, {"policy": policy, "wm": wm}),
+                          (f"hierarchical_slow_{args.slow_scale:g}", Hierarchical(RollMPC(ident), roads, True, args.slow_scale), {})):
         ev, _ = evaluate_g(pool, cases, roads, ctl, args.workers, **kw)
         rep[name] = ev
         log(f"{name:>13} [fresh]: rolled {ev['rolled']}/{ev['episodes']}, off path {ev['off_path']}, return {ev['mean_return']:.1f}, |lat| {ev['mean_abs_lat']:.3f} m, "
