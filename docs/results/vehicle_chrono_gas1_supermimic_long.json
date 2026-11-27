@@ -1,0 +1,1473 @@
+{
+ "args": {
+  "lift_data": "/tmp/claude-0/-home-user-smimic-ext/7f56e299-37ce-5f31-9c7b-e40d08a3dcf1/scratchpad/lift/data.npz",
+  "road_dir": "/tmp/claude-0/-home-user-smimic-ext/7f56e299-37ce-5f31-9c7b-e40d08a3dcf1/scratchpad/gas1/run/roads",
+  "train_roads": 64,
+  "random_episodes": 400,
+  "random_cache": "/tmp/claude-0/-home-user-smimic-ext/7f56e299-37ce-5f31-9c7b-e40d08a3dcf1/scratchpad/gas1/run/random.npz",
+  "workers": 4,
+  "iterations": 40,
+  "episodes_per_iter": 8,
+  "wm_pretrain": 4000,
+  "bc_updates": 3000,
+  "wm_updates": 300,
+  "policy_updates": 150,
+  "horizon": 75,
+  "batch": 256,
+  "eval_paths": 8,
+  "baselines_only": false,
+  "seed": 0,
+  "out": "/tmp/claude-0/-home-user-smimic-ext/7f56e299-37ce-5f31-9c7b-e40d08a3dcf1/scratchpad/gas1/run2/sm.json"
+ },
+ "curve": [
+  {
+   "iteration": 0,
+   "rolled": 0,
+   "off_path": 4,
+   "episodes": 16,
+   "mean_return": 325.20508070398705,
+   "mean_abs_lat": 0.15560495537556637,
+   "rms_az": 1.380635008657464,
+   "two_wheel_lift_s": 0.4,
+   "mean_speed": 14.056556862994134
+  },
+  {
+   "iteration": 1,
+   "task_steps": 5245,
+   "wm_loss": 0.07697707414627075,
+   "imagined_reward_per_step": 1.1681992645263672
+  },
+  {
+   "iteration": 2,
+   "task_steps": 6458,
+   "wm_loss": 0.07071404904127121,
+   "imagined_reward_per_step": 1.1709166005452474
+  },
+  {
+   "iteration": 3,
+   "task_steps": 7969,
+   "wm_loss": 0.1042308509349823,
+   "imagined_reward_per_step": 1.2350515848795571
+  },
+  {
+   "iteration": 4,
+   "task_steps": 9342,
+   "wm_loss": 0.06646455824375153,
+   "imagined_reward_per_step": 1.2542529703776042
+  },
+  {
+   "iteration": 5,
+   "task_steps": 11273,
+   "wm_loss": 0.08720948547124863,
+   "imagined_reward_per_step": 1.2921582590738934,
+   "rolled": 0,
+   "off_path": 4,
+   "episodes": 16,
+   "mean_return": 354.7279733408576,
+   "mean_abs_lat": 0.07853866066984812,
+   "rms_az": 1.1279441601907843,
+   "two_wheel_lift_s": 4.08,
+   "mean_speed": 13.736552016304298
+  },
+  {
+   "iteration": 6,
+   "task_steps": 12541,
+   "wm_loss": 0.12395129352807999,
+   "imagined_reward_per_step": 1.3118796030680338
+  },
+  {
+   "iteration": 7,
+   "task_steps": 14336,
+   "wm_loss": 0.07712281495332718,
+   "imagined_reward_per_step": 1.353986267089844
+  },
+  {
+   "iteration": 8,
+   "task_steps": 15901,
+   "wm_loss": 0.06970082968473434,
+   "imagined_reward_per_step": 1.3645870513916016
+  },
+  {
+   "iteration": 9,
+   "task_steps": 17301,
+   "wm_loss": 0.09115807712078094,
+   "imagined_reward_per_step": 1.3520291341145834
+  },
+  {
+   "iteration": 10,
+   "task_steps": 18533,
+   "wm_loss": 0.07168740034103394,
+   "imagined_reward_per_step": 1.3723865509033204,
+   "rolled": 0,
+   "off_path": 2,
+   "episodes": 16,
+   "mean_return": 363.4763442803575,
+   "mean_abs_lat": 0.058764955913913286,
+   "rms_az": 1.0913615892234323,
+   "two_wheel_lift_s": 2.98,
+   "mean_speed": 13.984113585113104
+  },
+  {
+   "iteration": 11,
+   "task_steps": 20560,
+   "wm_loss": 0.10456877946853638,
+   "imagined_reward_per_step": 1.393387379964193
+  },
+  {
+   "iteration": 12,
+   "task_steps": 22359,
+   "wm_loss": 0.07229416817426682,
+   "imagined_reward_per_step": 1.3922261454264322
+  },
+  {
+   "iteration": 13,
+   "task_steps": 23714,
+   "wm_loss": 0.07246290147304535,
+   "imagined_reward_per_step": 1.4002799123128253
+  },
+  {
+   "iteration": 14,
+   "task_steps": 25440,
+   "wm_loss": 0.07835365831851959,
+   "imagined_reward_per_step": 1.3959114837646485
+  },
+  {
+   "iteration": 15,
+   "task_steps": 26866,
+   "wm_loss": 0.111821748316288,
+   "imagined_reward_per_step": 1.401213582356771,
+   "rolled": 0,
+   "off_path": 2,
+   "episodes": 16,
+   "mean_return": 350.51312456406674,
+   "mean_abs_lat": 0.05866416921975262,
+   "rms_az": 1.1795373557482713,
+   "two_wheel_lift_s": 3.44,
+   "mean_speed": 14.328295035567377
+  },
+  {
+   "iteration": 16,
+   "task_steps": 28879,
+   "wm_loss": 0.10664002597332001,
+   "imagined_reward_per_step": 1.4115587361653643
+  },
+  {
+   "iteration": 17,
+   "task_steps": 30205,
+   "wm_loss": 0.08102291822433472,
+   "imagined_reward_per_step": 1.42079204305013
+  },
+  {
+   "iteration": 18,
+   "task_steps": 31638,
+   "wm_loss": 0.08418787270784378,
+   "imagined_reward_per_step": 1.4177723592122395
+  },
+  {
+   "iteration": 19,
+   "task_steps": 33306,
+   "wm_loss": 0.0783812552690506,
+   "imagined_reward_per_step": 1.4344212697347003
+  },
+  {
+   "iteration": 20,
+   "task_steps": 35170,
+   "wm_loss": 0.07149868458509445,
+   "imagined_reward_per_step": 1.4261388448079426,
+   "rolled": 0,
+   "off_path": 2,
+   "episodes": 16,
+   "mean_return": 345.20435620083634,
+   "mean_abs_lat": 0.0658603995493791,
+   "rms_az": 1.3839774336572743,
+   "two_wheel_lift_s": 4.4799999999999995,
+   "mean_speed": 14.166274784874693
+  },
+  {
+   "iteration": 21,
+   "task_steps": 37040,
+   "wm_loss": 0.0980687364935875,
+   "imagined_reward_per_step": 1.4401867828369141
+  },
+  {
+   "iteration": 22,
+   "task_steps": 38229,
+   "wm_loss": 0.07465433329343796,
+   "imagined_reward_per_step": 1.4227704060872397
+  },
+  {
+   "iteration": 23,
+   "task_steps": 39590,
+   "wm_loss": 0.07558295875787735,
+   "imagined_reward_per_step": 1.4210538024902344
+  },
+  {
+   "iteration": 24,
+   "task_steps": 41431,
+   "wm_loss": 0.10373403131961823,
+   "imagined_reward_per_step": 1.4204756113688153
+  },
+  {
+   "iteration": 25,
+   "task_steps": 43400,
+   "wm_loss": 0.10065770149230957,
+   "imagined_reward_per_step": 1.4454972127278645,
+   "rolled": 0,
+   "off_path": 2,
+   "episodes": 16,
+   "mean_return": 350.8242785825995,
+   "mean_abs_lat": 0.061358723552923475,
+   "rms_az": 1.1618299636743725,
+   "two_wheel_lift_s": 4.58,
+   "mean_speed": 13.95689903841284
+  },
+  {
+   "iteration": 26,
+   "task_steps": 45211,
+   "wm_loss": 0.13002680242061615,
+   "imagined_reward_per_step": 1.435190363566081
+  },
+  {
+   "iteration": 27,
+   "task_steps": 46755,
+   "wm_loss": 0.10856097936630249,
+   "imagined_reward_per_step": 1.426457529703776
+  },
+  {
+   "iteration": 28,
+   "task_steps": 48341,
+   "wm_loss": 0.10056979209184647,
+   "imagined_reward_per_step": 1.422843221028646
+  },
+  {
+   "iteration": 29,
+   "task_steps": 49900,
+   "wm_loss": 0.06771031767129898,
+   "imagined_reward_per_step": 1.4411483815511068
+  },
+  {
+   "iteration": 30,
+   "task_steps": 51232,
+   "wm_loss": 0.11134655773639679,
+   "imagined_reward_per_step": 1.446039555867513,
+   "rolled": 0,
+   "off_path": 2,
+   "episodes": 16,
+   "mean_return": 352.8877583785294,
+   "mean_abs_lat": 0.06357767693580087,
+   "rms_az": 1.183698138402306,
+   "two_wheel_lift_s": 4.92,
+   "mean_speed": 14.074534567201582
+  },
+  {
+   "iteration": 31,
+   "task_steps": 52717,
+   "wm_loss": 0.084747314453125,
+   "imagined_reward_per_step": 1.4373204600016276
+  },
+  {
+   "iteration": 32,
+   "task_steps": 54424,
+   "wm_loss": 0.08615922927856445,
+   "imagined_reward_per_step": 1.440003382364909
+  },
+  {
+   "iteration": 33,
+   "task_steps": 55875,
+   "wm_loss": 0.09695717692375183,
+   "imagined_reward_per_step": 1.4069584604899088
+  },
+  {
+   "iteration": 34,
+   "task_steps": 58290,
+   "wm_loss": 0.08175048977136612,
+   "imagined_reward_per_step": 1.443315470377604
+  },
+  {
+   "iteration": 35,
+   "task_steps": 59740,
+   "wm_loss": 0.09562275558710098,
+   "imagined_reward_per_step": 1.428530064900716,
+   "rolled": 1,
+   "off_path": 1,
+   "episodes": 16,
+   "mean_return": 351.4549121263732,
+   "mean_abs_lat": 0.06632391277622844,
+   "rms_az": 1.211397872069694,
+   "two_wheel_lift_s": 5.28,
+   "mean_speed": 13.994922212048294
+  },
+  {
+   "iteration": 36,
+   "task_steps": 61799,
+   "wm_loss": 0.06895601004362106,
+   "imagined_reward_per_step": 1.432048100789388
+  },
+  {
+   "iteration": 37,
+   "task_steps": 63282,
+   "wm_loss": 0.06846190989017487,
+   "imagined_reward_per_step": 1.4324041544596353
+  },
+  {
+   "iteration": 38,
+   "task_steps": 65109,
+   "wm_loss": 0.08537476509809494,
+   "imagined_reward_per_step": 1.445258524576823
+  },
+  {
+   "iteration": 39,
+   "task_steps": 66792,
+   "wm_loss": 0.11919283866882324,
+   "imagined_reward_per_step": 1.4349514872233073
+  },
+  {
+   "iteration": 40,
+   "task_steps": 68842,
+   "wm_loss": 0.08086191117763519,
+   "imagined_reward_per_step": 1.4338590240478517,
+   "rolled": 0,
+   "off_path": 1,
+   "episodes": 16,
+   "mean_return": 368.5106069269709,
+   "mean_abs_lat": 0.05404580100104779,
+   "rms_az": 1.1505455734078853,
+   "two_wheel_lift_s": 3.22,
+   "mean_speed": 14.03915336638641
+  }
+ ],
+ "chrono_steps": {
+  "random_excitation": 78917,
+  "task": 68842
+ },
+ "baselines": {
+  "ssf_passive": {
+   "rolled": 0,
+   "off_path": 1,
+   "episodes": 16,
+   "mean_return": 350.21717369599287,
+   "mean_abs_lat": 0.15407559300952822,
+   "rms_az": 1.7016283705548152,
+   "two_wheel_lift_s": 0.5800000000000001,
+   "mean_speed": 13.553199115171019,
+   "per_episode": [
+    {
+     "end": "completed",
+     "return": 293.6842311130168,
+     "steps": 178,
+     "mean_abs_lat": 0.08444748177776441,
+     "rms_az": 1.2051475096544013,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.9063917855001526,
+     "mean_speed": 10.889270136237199,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 181.36211996762248,
+     "steps": 133,
+     "mean_abs_lat": 0.2117547886461678,
+     "rms_az": 1.4749159238054375,
+     "two_wheel_lift_s": 0.02,
+     "max_tilt_deg": 3.462847059572847,
+     "mean_speed": 14.573116212441452,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 554.7715466773352,
+     "steps": 331,
+     "mean_abs_lat": 0.09746351971865655,
+     "rms_az": 1.6232144930705636,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 2.8582926835785725,
+     "mean_speed": 13.009475826345255,
+     "v_ref": 13.0
+    },
+    {
+     "end": "off_path",
+     "return": 279.1559247327864,
+     "steps": 253,
+     "mean_abs_lat": 0.2617004583741343,
+     "rms_az": 2.6207285130726357,
+     "two_wheel_lift_s": 0.02,
+     "max_tilt_deg": 3.411267369217337,
+     "mean_speed": 16.285001551449025,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 494.6859929937468,
+     "steps": 305,
+     "mean_abs_lat": 0.1171997437609355,
+     "rms_az": 1.7285628824329187,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.572072328872501,
+     "mean_speed": 12.997186311569886,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 362.85191878384774,
+     "steps": 268,
+     "mean_abs_lat": 0.18087075226370505,
+     "rms_az": 2.012878591552508,
+     "two_wheel_lift_s": 0.1,
+     "max_tilt_deg": 3.670221574153574,
+     "mean_speed": 14.795838231660056,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 399.7679115245626,
+     "steps": 270,
+     "mean_abs_lat": 0.1606827879213718,
+     "rms_az": 1.978020119493428,
+     "two_wheel_lift_s": 0.04,
+     "max_tilt_deg": 4.827646168458234,
+     "mean_speed": 13.006796382165371,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 272.7374698209525,
+     "steps": 247,
+     "mean_abs_lat": 0.18757954028112733,
+     "rms_az": 2.8006295519215216,
+     "two_wheel_lift_s": 0.2,
+     "max_tilt_deg": 5.848329802679262,
+     "mean_speed": 14.20389439753907,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 496.45073470893544,
+     "steps": 305,
+     "mean_abs_lat": 0.12113483652243844,
+     "rms_az": 1.6393336992044745,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.4830775928668722,
+     "mean_speed": 13.001702173542231,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 390.89244326924126,
+     "steps": 276,
+     "mean_abs_lat": 0.17243621669703718,
+     "rms_az": 1.7496323359319255,
+     "two_wheel_lift_s": 0.02,
+     "max_tilt_deg": 3.6361426962114365,
+     "mean_speed": 14.38088480446332,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 500.53144305593537,
+     "steps": 305,
+     "mean_abs_lat": 0.12134988425668959,
+     "rms_az": 1.3178086282070078,
+     "two_wheel_lift_s": 0.04,
+     "max_tilt_deg": 3.5912954902134686,
+     "mean_speed": 12.52563933228823,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 390.8735700163333,
+     "steps": 284,
+     "mean_abs_lat": 0.16888122247404183,
+     "rms_az": 1.7576423785543285,
+     "two_wheel_lift_s": 0.02,
+     "max_tilt_deg": 3.7240871409678524,
+     "mean_speed": 13.469194237047406,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 279.3057145346202,
+     "steps": 169,
+     "mean_abs_lat": 0.13461662665425211,
+     "rms_az": 1.1668973330759458,
+     "two_wheel_lift_s": 0.02,
+     "max_tilt_deg": 3.9799597761444985,
+     "mean_speed": 12.989724238896615,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 204.52904855554522,
+     "steps": 152,
+     "mean_abs_lat": 0.181344913696801,
+     "rms_az": 1.7824663885605974,
+     "two_wheel_lift_s": 0.08,
+     "max_tilt_deg": 4.012200906379167,
+     "mean_speed": 14.485357474916729,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 289.79028526817535,
+     "steps": 173,
+     "mean_abs_lat": 0.09320130642468946,
+     "rms_az": 1.1993873012228118,
+     "two_wheel_lift_s": 0.02,
+     "max_tilt_deg": 3.8239874346264893,
+     "mean_speed": 11.844520416047295,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 212.08442411322952,
+     "steps": 142,
+     "mean_abs_lat": 0.17054540868263918,
+     "rms_az": 1.1687882791165383,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 4.012582044847969,
+     "mean_speed": 14.39358411612714,
+     "v_ref": 17.0
+    }
+   ]
+  },
+  "ssf_preview": {
+   "rolled": 0,
+   "off_path": 0,
+   "episodes": 16,
+   "mean_return": 369.8413792951875,
+   "mean_abs_lat": 0.15053374655283797,
+   "rms_az": 1.246275642905632,
+   "two_wheel_lift_s": 0.24,
+   "mean_speed": 13.554739395310015,
+   "per_episode": [
+    {
+     "end": "completed",
+     "return": 298.4692656891067,
+     "steps": 178,
+     "mean_abs_lat": 0.08463585464448102,
+     "rms_az": 0.8524191056063078,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.0733327078804304,
+     "mean_speed": 10.892950850253055,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 183.09256254331592,
+     "steps": 133,
+     "mean_abs_lat": 0.2159583414718102,
+     "rms_az": 1.1323139039419265,
+     "two_wheel_lift_s": 0.04,
+     "max_tilt_deg": 2.543801594900103,
+     "mean_speed": 14.574816442940264,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 572.7136738506647,
+     "steps": 331,
+     "mean_abs_lat": 0.09495630792308397,
+     "rms_az": 1.1286976029277498,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 2.361486355119966,
+     "mean_speed": 13.008251282670372,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 353.99399924671616,
+     "steps": 264,
+     "mean_abs_lat": 0.2720201683724439,
+     "rms_az": 1.329039074712355,
+     "two_wheel_lift_s": 0.04,
+     "max_tilt_deg": 2.6316101621167216,
+     "mean_speed": 16.299726233753354,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 500.68334382888264,
+     "steps": 305,
+     "mean_abs_lat": 0.11608023685599535,
+     "rms_az": 1.5174562345985667,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.0918307640945133,
+     "mean_speed": 12.9961395511604,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 400.0099393739024,
+     "steps": 268,
+     "mean_abs_lat": 0.17274185526846036,
+     "rms_az": 1.2568806064410247,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 2.7379788849795847,
+     "mean_speed": 14.79414035812263,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 419.669566852971,
+     "steps": 270,
+     "mean_abs_lat": 0.15154406357181527,
+     "rms_az": 1.603720666225286,
+     "two_wheel_lift_s": 0.02,
+     "max_tilt_deg": 3.7496259598904893,
+     "mean_speed": 13.008137015994073,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 333.8539761739081,
+     "steps": 248,
+     "mean_abs_lat": 0.17666998044891358,
+     "rms_az": 1.921923045264235,
+     "two_wheel_lift_s": 0.06,
+     "max_tilt_deg": 3.5442088593393857,
+     "mean_speed": 14.193512577244151,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 509.9653942950086,
+     "steps": 305,
+     "mean_abs_lat": 0.12203415346439257,
+     "rms_az": 1.2065528384405335,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.0139437090641907,
+     "mean_speed": 13.00409573713069,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 402.38083119198836,
+     "steps": 276,
+     "mean_abs_lat": 0.17178489758088805,
+     "rms_az": 1.4582675995190408,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.1496298640080327,
+     "mean_speed": 14.384011637446015,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 516.0171276529801,
+     "steps": 305,
+     "mean_abs_lat": 0.12297128053558441,
+     "rms_az": 0.7864394054269411,
+     "two_wheel_lift_s": 0.02,
+     "max_tilt_deg": 2.903570260680675,
+     "mean_speed": 12.524656069135354,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 416.836303168516,
+     "steps": 284,
+     "mean_abs_lat": 0.15523783032775246,
+     "rms_az": 1.2459667691116811,
+     "two_wheel_lift_s": 0.04,
+     "max_tilt_deg": 3.0739799566529395,
+     "mean_speed": 13.47256008164012,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 283.51380696485927,
+     "steps": 169,
+     "mean_abs_lat": 0.12899292068419646,
+     "rms_az": 0.9389761743432035,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.368822648249694,
+     "mean_speed": 12.988024477113239,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 227.5560076585606,
+     "steps": 152,
+     "mean_abs_lat": 0.16629783067269235,
+     "rms_az": 1.238287660017581,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 2.837030041962449,
+     "mean_speed": 14.496348727242447,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 286.1076635886563,
+     "steps": 173,
+     "mean_abs_lat": 0.09285546051465308,
+     "rms_az": 1.311001060306481,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.4324601234879153,
+     "mean_speed": 11.842009495709048,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 212.59860664296312,
+     "steps": 142,
+     "mean_abs_lat": 0.16375876250824423,
+     "rms_az": 1.0124685396071982,
+     "two_wheel_lift_s": 0.02,
+     "max_tilt_deg": 3.8438862107128884,
+     "mean_speed": 14.39644978740502,
+     "v_ref": 17.0
+    }
+   ]
+  },
+  "mpc_passive": {
+   "rolled": 0,
+   "off_path": 0,
+   "episodes": 16,
+   "mean_return": 350.1885644221237,
+   "mean_abs_lat": 0.09245297340409063,
+   "rms_az": 1.9033111105197322,
+   "two_wheel_lift_s": 0.74,
+   "mean_speed": 14.544243828811537,
+   "per_episode": [
+    {
+     "end": "completed",
+     "return": 259.25058761978505,
+     "steps": 159,
+     "mean_abs_lat": 0.09735997951493851,
+     "rms_az": 1.426059462789589,
+     "two_wheel_lift_s": 0.04,
+     "max_tilt_deg": 4.013966801523177,
+     "mean_speed": 12.195886556536767,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 169.8834588790469,
+     "steps": 120,
+     "mean_abs_lat": 0.16611621161530382,
+     "rms_az": 1.8845249459083406,
+     "two_wheel_lift_s": 0.02,
+     "max_tilt_deg": 3.8476533236491033,
+     "mean_speed": 16.145885084068038,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 580.5129382694827,
+     "steps": 331,
+     "mean_abs_lat": 0.012941582683394431,
+     "rms_az": 1.6577664334013706,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.0697365193592563,
+     "mean_speed": 13.000603504055915,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 358.6961891598137,
+     "steps": 258,
+     "mean_abs_lat": 0.09170077690560716,
+     "rms_az": 2.725258930086466,
+     "two_wheel_lift_s": 0.08,
+     "max_tilt_deg": 3.923542721459264,
+     "mean_speed": 16.69090308498803,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 527.6350682442524,
+     "steps": 305,
+     "mean_abs_lat": 0.02623901075147993,
+     "rms_az": 1.7192042248760406,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.996405722031563,
+     "mean_speed": 12.979691125069586,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 288.7988882700387,
+     "steps": 240,
+     "mean_abs_lat": 0.14806636105410184,
+     "rms_az": 3.0001482694112873,
+     "two_wheel_lift_s": 0.12,
+     "max_tilt_deg": 3.568557067971915,
+     "mean_speed": 16.531822979886368,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 449.9827717952959,
+     "steps": 273,
+     "mean_abs_lat": 0.05604075903403745,
+     "rms_az": 1.8948813006863867,
+     "two_wheel_lift_s": 0.02,
+     "max_tilt_deg": 4.164521378808773,
+     "mean_speed": 12.846714753457555,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 248.77211241734335,
+     "steps": 215,
+     "mean_abs_lat": 0.11536195910572743,
+     "rms_az": 3.2055147627972587,
+     "two_wheel_lift_s": 0.2,
+     "max_tilt_deg": 4.487178428924251,
+     "mean_speed": 16.339233691625658,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 527.9707571981819,
+     "steps": 306,
+     "mean_abs_lat": 0.047971744353247844,
+     "rms_az": 1.5112754196688547,
+     "two_wheel_lift_s": 0.02,
+     "max_tilt_deg": 3.798125213640031,
+     "mean_speed": 12.937783507329122,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 341.0566268158083,
+     "steps": 240,
+     "mean_abs_lat": 0.12180056787818462,
+     "rms_az": 2.412581021918631,
+     "two_wheel_lift_s": 0.06,
+     "max_tilt_deg": 4.0693381294112525,
+     "mean_speed": 16.53290793758727,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 524.2980936415926,
+     "steps": 299,
+     "mean_abs_lat": 0.05717664179352976,
+     "rms_az": 1.2695102641865952,
+     "two_wheel_lift_s": 0.02,
+     "max_tilt_deg": 3.7642189279142864,
+     "mean_speed": 12.77334803352038,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 347.91411014160303,
+     "steps": 242,
+     "mean_abs_lat": 0.13554956628722267,
+     "rms_az": 2.054631110593439,
+     "two_wheel_lift_s": 0.02,
+     "max_tilt_deg": 3.7239035502580475,
+     "mean_speed": 15.789762016764485,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 300.0503054478692,
+     "steps": 170,
+     "mean_abs_lat": 0.05103829346282766,
+     "rms_az": 1.132093681687386,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.527307033358959,
+     "mean_speed": 12.910490622711704,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 201.6650010247348,
+     "steps": 135,
+     "mean_abs_lat": 0.12672351454845754,
+     "rms_az": 1.9556414375263924,
+     "two_wheel_lift_s": 0.06,
+     "max_tilt_deg": 3.426576468909921,
+     "mean_speed": 16.352221983612267,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 275.4968253332776,
+     "steps": 164,
+     "mean_abs_lat": 0.09396934536679989,
+     "rms_az": 1.3130510411004457,
+     "two_wheel_lift_s": 0.02,
+     "max_tilt_deg": 3.8511662089341128,
+     "mean_speed": 12.53131335935439,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 201.03329649585265,
+     "steps": 127,
+     "mean_abs_lat": 0.13119126011058954,
+     "rms_az": 1.2908354616772337,
+     "two_wheel_lift_s": 0.06,
+     "max_tilt_deg": 3.877527469828082,
+     "mean_speed": 16.149333020417057,
+     "v_ref": 17.0
+    }
+   ]
+  },
+  "hierarchical": {
+   "rolled": 0,
+   "off_path": 0,
+   "episodes": 16,
+   "mean_return": 367.07043729918996,
+   "mean_abs_lat": 0.0792679083380738,
+   "rms_az": 1.481239538146414,
+   "two_wheel_lift_s": 0.64,
+   "mean_speed": 14.638301613088096,
+   "per_episode": [
+    {
+     "end": "completed",
+     "return": 260.6580664743765,
+     "steps": 158,
+     "mean_abs_lat": 0.09459040237699178,
+     "rms_az": 1.2291639180618557,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.3024144994957787,
+     "mean_speed": 12.270228899980554,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 172.7499171334336,
+     "steps": 119,
+     "mean_abs_lat": 0.17166498883816012,
+     "rms_az": 1.4405184524630736,
+     "two_wheel_lift_s": 0.06,
+     "max_tilt_deg": 3.125749797055762,
+     "mean_speed": 16.1986616718556,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 596.7437339369424,
+     "steps": 331,
+     "mean_abs_lat": 0.012495798711819266,
+     "rms_az": 1.2023646212342896,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 2.659067851201096,
+     "mean_speed": 13.003647520445877,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 432.36285129591187,
+     "steps": 255,
+     "mean_abs_lat": 0.06368103568223524,
+     "rms_az": 1.4403144819590181,
+     "two_wheel_lift_s": 0.02,
+     "max_tilt_deg": 3.3000232739770476,
+     "mean_speed": 16.85390839669966,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 529.2419511337732,
+     "steps": 305,
+     "mean_abs_lat": 0.017645147489625965,
+     "rms_az": 1.6627806407331596,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.2336771914087343,
+     "mean_speed": 13.01213010138236,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 260.3419282567627,
+     "steps": 238,
+     "mean_abs_lat": 0.09784159266132346,
+     "rms_az": 3.5609633180027163,
+     "two_wheel_lift_s": 0.12,
+     "max_tilt_deg": 3.335804209732681,
+     "mean_speed": 16.662321832579913,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 467.0947891663162,
+     "steps": 272,
+     "mean_abs_lat": 0.04632179248574465,
+     "rms_az": 1.450644357004703,
+     "two_wheel_lift_s": 0.02,
+     "max_tilt_deg": 3.8068244685220862,
+     "mean_speed": 12.932186988837879,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 322.7901723452113,
+     "steps": 214,
+     "mean_abs_lat": 0.09662044694931089,
+     "rms_az": 1.9213046741128716,
+     "two_wheel_lift_s": 0.18,
+     "max_tilt_deg": 3.485800059213127,
+     "mean_speed": 16.43282628793448,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 549.625119389549,
+     "steps": 306,
+     "mean_abs_lat": 0.03641895196827312,
+     "rms_az": 0.9888912470949319,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.308552088626878,
+     "mean_speed": 12.958458389901061,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 371.2991278320514,
+     "steps": 238,
+     "mean_abs_lat": 0.11442749758770833,
+     "rms_az": 1.7239789335623468,
+     "two_wheel_lift_s": 0.06,
+     "max_tilt_deg": 3.4169520061995744,
+     "mean_speed": 16.65891272304968,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 538.6704247635957,
+     "steps": 297,
+     "mean_abs_lat": 0.04417811673993024,
+     "rms_az": 0.8235085860787635,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.029055077301026,
+     "mean_speed": 12.860439461442448,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 373.88428749479795,
+     "steps": 238,
+     "mean_abs_lat": 0.1176921244492854,
+     "rms_az": 1.4149170979742378,
+     "two_wheel_lift_s": 0.12,
+     "max_tilt_deg": 3.3285783209419506,
+     "mean_speed": 16.067645211188957,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 306.9447461775351,
+     "steps": 169,
+     "mean_abs_lat": 0.03104663719178768,
+     "rms_az": 0.8912310312347367,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.1492469173352076,
+     "mean_speed": 13.041394936052736,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 217.6000486728363,
+     "steps": 133,
+     "mean_abs_lat": 0.10277465812676519,
+     "rms_az": 1.344026791797044,
+     "two_wheel_lift_s": 0.02,
+     "max_tilt_deg": 3.0687061441167987,
+     "mean_speed": 16.48081317973918,
+     "v_ref": 17.0
+    },
+    {
+     "end": "completed",
+     "return": 275.6205538453704,
+     "steps": 163,
+     "mean_abs_lat": 0.08722640918682198,
+     "rms_az": 1.3102752366998298,
+     "two_wheel_lift_s": 0.0,
+     "max_tilt_deg": 3.666990638504505,
+     "mean_speed": 12.55969855332511,
+     "v_ref": 13.0
+    },
+    {
+     "end": "completed",
+     "return": 197.4992788685753,
+     "steps": 126,
+     "mean_abs_lat": 0.13366093296339746,
+     "rms_az": 1.2949492223290484,
+     "two_wheel_lift_s": 0.04,
+     "max_tilt_deg": 3.6826735839736755,
+     "mean_speed": 16.219551654994056,
+     "v_ref": 17.0
+    }
+   ]
+  }
+ },
+ "behaviour_clone": {
+  "rolled": 0,
+  "off_path": 4,
+  "episodes": 16,
+  "mean_return": 325.20508070398705,
+  "mean_abs_lat": 0.15560495537556637,
+  "rms_az": 1.380635008657464,
+  "two_wheel_lift_s": 0.4,
+  "mean_speed": 14.056556862994134,
+  "per_episode": [
+   {
+    "end": "completed",
+    "return": 242.02574328369244,
+    "steps": 169,
+    "mean_abs_lat": 0.20167819762558756,
+    "rms_az": 1.1074662548308691,
+    "two_wheel_lift_s": 0.0,
+    "max_tilt_deg": 3.1947451398236795,
+    "mean_speed": 11.447403737826265,
+    "v_ref": 13.0
+   },
+   {
+    "end": "off_path",
+    "return": 86.5042272792513,
+    "steps": 56,
+    "mean_abs_lat": 0.0993416369350446,
+    "rms_az": 1.5585695818298702,
+    "two_wheel_lift_s": 0.0,
+    "max_tilt_deg": 2.1035063322406677,
+    "mean_speed": 17.132673754563566,
+    "v_ref": 17.0
+   },
+   {
+    "end": "completed",
+    "return": 588.757513126454,
+    "steps": 340,
+    "mean_abs_lat": 0.08314070830239095,
+    "rms_az": 1.165014335116187,
+    "two_wheel_lift_s": 0.0,
+    "max_tilt_deg": 2.2025289056102713,
+    "mean_speed": 12.649320798735427,
+    "v_ref": 13.0
+   },
+   {
+    "end": "completed",
+    "return": 465.1307828880541,
+    "steps": 301,
+    "mean_abs_lat": 0.12620306981957125,
+    "rms_az": 1.3363221014972928,
+    "two_wheel_lift_s": 0.04,
+    "max_tilt_deg": 2.7213783716856277,
+    "mean_speed": 14.312527100298741,
+    "v_ref": 17.0
+   },
+   {
+    "end": "completed",
+    "return": 454.47676205470907,
+    "steps": 291,
+    "mean_abs_lat": 0.1570792193934861,
+    "rms_az": 1.4746409925203168,
+    "two_wheel_lift_s": 0.0,
+    "max_tilt_deg": 3.435701368829209,
+    "mean_speed": 13.616678103862577,
+    "v_ref": 13.0
+   },
+   {
+    "end": "completed",
+    "return": 353.6883939534349,
+    "steps": 263,
+    "mean_abs_lat": 0.24627088906138395,
+    "rms_az": 1.239290199638332,
+    "two_wheel_lift_s": 0.06,
+    "max_tilt_deg": 3.189067805404759,
+    "mean_speed": 15.10385167209566,
+    "v_ref": 17.0
+   },
+   {
+    "end": "completed",
+    "return": 382.72412298761924,
+    "steps": 264,
+    "mean_abs_lat": 0.19990800011519771,
+    "rms_az": 1.5351459124143663,
+    "two_wheel_lift_s": 0.02,
+    "max_tilt_deg": 4.055619443950398,
+    "mean_speed": 13.312680740335187,
+    "v_ref": 13.0
+   },
+   {
+    "end": "completed",
+    "return": 344.6963207767768,
+    "steps": 259,
+    "mean_abs_lat": 0.18169804804156536,
+    "rms_az": 1.6583590751610084,
+    "two_wheel_lift_s": 0.06,
+    "max_tilt_deg": 3.9295780817759254,
+    "mean_speed": 13.563618793505501,
+    "v_ref": 17.0
+   },
+   {
+    "end": "completed",
+    "return": 491.6422744366763,
+    "steps": 314,
+    "mean_abs_lat": 0.11888162618038865,
+    "rms_az": 1.651883015294092,
+    "two_wheel_lift_s": 0.06,
+    "max_tilt_deg": 3.72538608908283,
+    "mean_speed": 12.607945765078139,
+    "v_ref": 13.0
+   },
+   {
+    "end": "off_path",
+    "return": 328.4809837259262,
+    "steps": 250,
+    "mean_abs_lat": 0.23904601862010555,
+    "rms_az": 1.6302268328932548,
+    "two_wheel_lift_s": 0.0,
+    "max_tilt_deg": 3.3260325851111006,
+    "mean_speed": 15.406981111537151,
+    "v_ref": 17.0
+   },
+   {
+    "end": "completed",
+    "return": 512.4963003227863,
+    "steps": 315,
+    "mean_abs_lat": 0.1522794434709727,
+    "rms_az": 0.8712069266750202,
+    "two_wheel_lift_s": 0.0,
+    "max_tilt_deg": 3.1067149242229246,
+    "mean_speed": 12.143828960246678,
+    "v_ref": 13.0
+   },
+   {
+    "end": "off_path",
+    "return": 84.31824296066968,
+    "steps": 60,
+    "mean_abs_lat": 0.09240361774026909,
+    "rms_az": 2.2021824177740004,
+    "two_wheel_lift_s": 0.06,
+    "max_tilt_deg": 3.3908549244579063,
+    "mean_speed": 17.321482308923585,
+    "v_ref": 17.0
+   },
+   {
+    "end": "completed",
+    "return": 288.4032350444591,
+    "steps": 174,
+    "mean_abs_lat": 0.13483134707910535,
+    "rms_az": 0.8602877411545414,
+    "two_wheel_lift_s": 0.0,
+    "max_tilt_deg": 3.0286489705779664,
+    "mean_speed": 12.615076469417538,
+    "v_ref": 13.0
+   },
+   {
+    "end": "completed",
+    "return": 219.91466858341568,
+    "steps": 152,
+    "mean_abs_lat": 0.16455857999748785,
+    "rms_az": 1.2463072819245444,
+    "two_wheel_lift_s": 0.08,
+    "max_tilt_deg": 3.2596739917712516,
+    "mean_speed": 14.485841430349895,
+    "v_ref": 17.0
+   },
+   {
+    "end": "completed",
+    "return": 253.90625149996958,
+    "steps": 161,
+    "mean_abs_lat": 0.16122801952650923,
+    "rms_az": 1.1311918881421668,
+    "two_wheel_lift_s": 0.02,
+    "max_tilt_deg": 3.7379541655199047,
+    "mean_speed": 12.75822201552941,
+    "v_ref": 13.0
+   },
+   {
+    "end": "off_path",
+    "return": 106.11546833989797,
+    "steps": 69,
+    "mean_abs_lat": 0.13113086409999594,
+    "rms_az": 1.4220655816535623,
+    "two_wheel_lift_s": 0.0,
+    "max_tilt_deg": 3.64604324473115,
+    "mean_speed": 16.426777045600822,
+    "v_ref": 17.0
+   }
+  ]
+ },
+ "final": {
+  "rolled": 0,
+  "off_path": 1,
+  "episodes": 16,
+  "mean_return": 368.5106069269709,
+  "mean_abs_lat": 0.05404580100104779,
+  "rms_az": 1.1505455734078853,
+  "two_wheel_lift_s": 3.22,
+  "mean_speed": 14.03915336638641,
+  "per_episode": [
+   {
+    "end": "completed",
+    "return": 233.62328235559477,
+    "steps": 157,
+    "mean_abs_lat": 0.08499764478806388,
+    "rms_az": 1.013927859469249,
+    "two_wheel_lift_s": 0.28,
+    "max_tilt_deg": 3.881230006945535,
+    "mean_speed": 12.305822702631982,
+    "v_ref": 13.0
+   },
+   {
+    "end": "off_path",
+    "return": 132.83671060522417,
+    "steps": 93,
+    "mean_abs_lat": 0.10122149059176523,
+    "rms_az": 1.3869934397089116,
+    "two_wheel_lift_s": 0.1,
+    "max_tilt_deg": 3.569012247639232,
+    "mean_speed": 15.48027993615454,
+    "v_ref": 17.0
+   },
+   {
+    "end": "completed",
+    "return": 559.9648534251673,
+    "steps": 309,
+    "mean_abs_lat": 0.010953540674074117,
+    "rms_az": 0.9808285716225791,
+    "two_wheel_lift_s": 0.04,
+    "max_tilt_deg": 3.8638962198558118,
+    "mean_speed": 13.932325889822703,
+    "v_ref": 13.0
+   },
+   {
+    "end": "completed",
+    "return": 464.1154862681856,
+    "steps": 280,
+    "mean_abs_lat": 0.03811226451983007,
+    "rms_az": 1.0631044306982531,
+    "two_wheel_lift_s": 0.1,
+    "max_tilt_deg": 4.790698344668551,
+    "mean_speed": 15.379396841959773,
+    "v_ref": 17.0
+   },
+   {
+    "end": "completed",
+    "return": 539.5878480325387,
+    "steps": 297,
+    "mean_abs_lat": 0.018924260033554584,
+    "rms_az": 0.8766462489088455,
+    "two_wheel_lift_s": 0.06,
+    "max_tilt_deg": 4.110019772843852,
+    "mean_speed": 13.338041119784334,
+    "v_ref": 13.0
+   },
+   {
+    "end": "completed",
+    "return": 432.44105519810387,
+    "steps": 268,
+    "mean_abs_lat": 0.043263560550169645,
+    "rms_az": 1.3130726360995046,
+    "two_wheel_lift_s": 0.1,
+    "max_tilt_deg": 4.983950380607389,
+    "mean_speed": 14.789222110772101,
+    "v_ref": 17.0
+   },
+   {
+    "end": "completed",
+    "return": 500.16792583939144,
+    "steps": 278,
+    "mean_abs_lat": 0.020919994373719216,
+    "rms_az": 0.9013743491675115,
+    "two_wheel_lift_s": 0.0,
+    "max_tilt_deg": 4.455906470161911,
+    "mean_speed": 12.630073160404264,
+    "v_ref": 13.0
+   },
+   {
+    "end": "completed",
+    "return": 276.01645916738835,
+    "steps": 241,
+    "mean_abs_lat": 0.1045616853489038,
+    "rms_az": 1.8116900838812986,
+    "two_wheel_lift_s": 0.98,
+    "max_tilt_deg": 8.769736210108599,
+    "mean_speed": 14.570431316804864,
+    "v_ref": 17.0
+   },
+   {
+    "end": "completed",
+    "return": 527.5791261311126,
+    "steps": 297,
+    "mean_abs_lat": 0.018058966022324145,
+    "rms_az": 1.0236848273951764,
+    "two_wheel_lift_s": 0.02,
+    "max_tilt_deg": 3.854353683461275,
+    "mean_speed": 13.356107403439037,
+    "v_ref": 13.0
+   },
+   {
+    "end": "completed",
+    "return": 410.0102101577995,
+    "steps": 266,
+    "mean_abs_lat": 0.03978313223478943,
+    "rms_az": 1.4326465838761988,
+    "two_wheel_lift_s": 0.24,
+    "max_tilt_deg": 5.2923497751204005,
+    "mean_speed": 14.90516247598886,
+    "v_ref": 17.0
+   },
+   {
+    "end": "completed",
+    "return": 527.3259021127062,
+    "steps": 298,
+    "mean_abs_lat": 0.020752407996089708,
+    "rms_az": 0.8237451754231642,
+    "two_wheel_lift_s": 0.08,
+    "max_tilt_deg": 3.8104693333692117,
+    "mean_speed": 12.841764871983225,
+    "v_ref": 13.0
+   },
+   {
+    "end": "completed",
+    "return": 310.5756955037706,
+    "steps": 261,
+    "mean_abs_lat": 0.1715290945462099,
+    "rms_az": 1.340095373213232,
+    "two_wheel_lift_s": 0.54,
+    "max_tilt_deg": 5.432069628747196,
+    "mean_speed": 14.631717542281672,
+    "v_ref": 17.0
+   },
+   {
+    "end": "completed",
+    "return": 303.9321592580358,
+    "steps": 167,
+    "mean_abs_lat": 0.0164329574220481,
+    "rms_az": 0.819303303732618,
+    "two_wheel_lift_s": 0.02,
+    "max_tilt_deg": 3.9653007655905976,
+    "mean_speed": 13.167982499936045,
+    "v_ref": 13.0
+   },
+   {
+    "end": "completed",
+    "return": 228.61060592887048,
+    "steps": 144,
+    "mean_abs_lat": 0.039125264482361484,
+    "rms_az": 1.3022386885106814,
+    "two_wheel_lift_s": 0.14,
+    "max_tilt_deg": 4.118258613051094,
+    "mean_speed": 15.23064463083726,
+    "v_ref": 17.0
+   },
+   {
+    "end": "completed",
+    "return": 269.29113722612163,
+    "steps": 161,
+    "mean_abs_lat": 0.04302191347755911,
+    "rms_az": 1.0159543764649897,
+    "two_wheel_lift_s": 0.1,
+    "max_tilt_deg": 4.472585329731811,
+    "mean_speed": 12.734967303106723,
+    "v_ref": 13.0
+   },
+   {
+    "end": "completed",
+    "return": 180.09125362152366,
+    "steps": 133,
+    "mean_abs_lat": 0.09307463895530221,
+    "rms_az": 1.303423226353952,
+    "two_wheel_lift_s": 0.42,
+    "max_tilt_deg": 5.093411446780871,
+    "mean_speed": 15.332514056275176,
+    "v_ref": 17.0
+   }
+  ]
+ }
+}
