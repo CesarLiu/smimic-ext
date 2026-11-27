@@ -338,6 +338,7 @@ def parse(argv=None):
     ap.add_argument("--iterations", type=int, default=20)
     ap.add_argument("--episodes-per-iter", type=int, default=8)
     ap.add_argument("--wm-pretrain", type=int, default=4000)
+    ap.add_argument("--bc-updates", type=int, default=600, help="behaviour-clone updates before the SuperMimic loop")
     ap.add_argument("--wm-updates", type=int, default=300)
     ap.add_argument("--policy-updates", type=int, default=150)
     ap.add_argument("--horizon", type=int, default=75)
@@ -414,7 +415,7 @@ def main(argv=None) -> int:
         popt = torch.optim.Adam(policy.parameters(), lr=1e-3)
         eligible = [(e, t) for e, L in enumerate(task_logs) for t in range(1, len(L["a"]))]
         tp = torch.as_tensor(np.stack([np.pad(L["path"], ((0, 2400 - len(L["path"])), (0, 0)), mode="edge") for L in task_logs]), dtype=torch.float32)
-        for _ in range(600):
+        for _ in range(args.bc_updates):
             sel = [eligible[i] for i in rng.integers(0, len(eligible), 512)]
             x = torch.tensor(np.array([task_logs[e]["x"][t] for e, t in sel]), dtype=torch.float32)
             pose = torch.tensor(np.array([task_logs[e]["pose"][t] for e, t in sel]), dtype=torch.float32)
