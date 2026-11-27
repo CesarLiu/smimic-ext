@@ -49,3 +49,8 @@ def test_imagination_runs_and_reaches_policy(tmp_path):
     assert J.shape == (8,) and torch.isfinite(J).all()
     J.mean().backward()
     assert all(p.grad is not None and torch.isfinite(p.grad).all() for p in pol.parameters())
+    # the extra training-objective terms: zero weights change nothing, positive weights only subtract
+    with torch.no_grad():
+        J0 = imagine_g(wm, pol, st, paths, 10, roads)
+        assert torch.equal(J0, imagine_g(wm, pol, st, paths, 10, roads, 0.0, 0.0))
+        assert (imagine_g(wm, pol, st, paths, 10, roads, 1.0, 50.0) <= J0 + 1e-6).all()

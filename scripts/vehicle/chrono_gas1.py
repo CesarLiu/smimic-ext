@@ -126,7 +126,10 @@ def kinematic_pose(pose, x):
     return torch.stack([pose[:, 0] + (vx * torch.cos(yaw) - vy * torch.sin(yaw)) * DT, pose[:, 1] + (vx * torch.sin(yaw) + vy * torch.cos(yaw)) * DT, yaw], -1)
 
 
-def imagine_g(wm, policy, starts, paths, H, roads):
+def imagine_g(wm, policy, starts, paths, H, roads, corridor_w: float = 0.0, fail_pen: float = 0.0):
+    """Training objective (not the evaluation reward): the task reward, optionally minus a corridor barrier
+    corridor_w x (excess of |lateral error| over 0.4 m / 0.1 m)^2 (the MPC's corridor term) and minus fail_pen x the
+    probability of failing at each step (in Chrono a failure ends the episode, which the 1.5 s horizon undercounts)."""
     Xh, Ah, pose, s, pid, v_ref, rid = starts
     x, a_prev = Xh[-1], Ah[-1][:, :6]
     c = torch.ones(x.shape[0])
@@ -143,7 +146,8 @@ def imagine_g(wm, policy, starts, paths, H, roads):
         s = s + (x1[:, IXG["vx"]] * torch.cos(pose[:, 2] - pyaw) - x1[:, IXG["vy"]] * torch.sin(pose[:, 2] - pyaw)) * DT
         _, e_lat, e_head = crc.features(x1, pose, s, pid, v_ref, a[:, :2], paths, wm)
         rew, fail, _ = reward_g(x1, a, a_prev, e_lat, e_head, v_ref)
-        J = J + c * rew
+        rew = rew - corridor_w * (torch.relu(e_lat.abs() - 0.4) / 0.1) ** 2
+        J = J + c * (rew - fail_pen * fail)
         c = c * (1 - fail)
         x, a_prev = x1, a
     return J
@@ -345,6 +349,10 @@ def parse(argv=None):
     ap.add_argument("--batch", type=int, default=256)
     ap.add_argument("--eval-paths", type=int, default=8)
     ap.add_argument("--baselines-only", action="store_true")
+    ap.add_argument("--corridor-weight", type=float, default=0.0, help="training objective: corridor barrier beyond 0.4 m (imagination only)")
+    ap.add_argument("--fail-penalty", type=float, default=0.0, help="training objective: penalty per unit failure probability (imagination only)")
+    ap.add_argument("--extra-eval-paths", type=int, default=0, help="a second held-out evaluation set: this many paths x 2 speeds on new roads")
+    ap.add_argument("--save-dir", default=None, help="save policy and world model at every evaluation")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--python", default=None)
     ap.add_argument("--out", default="logs/chrono_gas1.json")
@@ -365,11 +373,19 @@ def main(argv=None) -> int:
     with ChronoPool(args.workers, args.python) as pool:
         pool.reset([{**CFG, "v": 5.0}], ids=[0])
         geo = pool.info(ids=[0])[0]
-        roads = Roads([*range(args.train_roads), *range(5000, 5000 + args.eval_paths)], args.road_dir, geo)
+        roads = Roads([*range(args.train_roads), *range(5000, 5000 + args.eval_paths), *range(6000, 6000 + args.extra_eval_paths)], args.road_dir, geo)
         eval_cases = []
         for e in range(args.eval_paths):
             p, _ = crc.lane_change_path(eval_rng)
             eval_cases += [(p, v, args.train_roads + e) for v in crc.EVAL_SPEEDS]
+        extra_rng, extra_cases = np.random.default_rng(args.seed + 3000), []
+        for e in range(args.extra_eval_paths):
+            p, _ = crc.lane_change_path(extra_rng)
+            extra_cases += [(p, v, args.train_roads + args.eval_paths + e) for v in crc.EVAL_SPEEDS]
+
+        def failed_traces(logs):
+            return [{"case": i, "v_ref": L["v_ref"], "end": L["end"], "lat": L["lat"], "vx": [x[0] for x in L["x"]], "steer": [a[0] for a in L["a"]],
+                     "ltr": L["ltr"], "tilt": L["tilt"]} for i, L in enumerate(logs) if L["end"] != "completed"]
         ident = identify(args.lift_data)
 
         def show(name, ev):
@@ -381,6 +397,9 @@ def main(argv=None) -> int:
                           ("mpc_passive", Hierarchical(RollMPC(ident), roads, False)), ("hierarchical", Hierarchical(RollMPC(ident), roads, True))):
             base[name], _ = evaluate_g(pool, eval_cases, roads, ctl, args.workers)
             show(name, base[name])
+            if extra_cases:
+                base[name + "_extra"], _ = evaluate_g(pool, extra_cases, roads, ctl, args.workers)
+                show(name + " [extra]", base[name + "_extra"])
             report["baselines"] = base
             Path(args.out).parent.mkdir(parents=True, exist_ok=True)
             Path(args.out).write_text(json.dumps(report, indent=1))
@@ -443,7 +462,7 @@ def main(argv=None) -> int:
             imag = []
             for _ in range(args.policy_updates):
                 st, paths = sample_starts_g(task_logs, args.batch, rng, wm.hist)
-                J = imagine_g(wm, policy, st, paths, args.horizon, roads)
+                J = imagine_g(wm, policy, st, paths, args.horizon, roads, args.corridor_weight, args.fail_penalty)
                 loss = -J.mean() / args.horizon
                 popt.zero_grad()
                 loss.backward()
@@ -452,10 +471,18 @@ def main(argv=None) -> int:
                 imag.append(float(J.mean()) / args.horizon)
             row = {"iteration": it, "task_steps": sum(len(L["a"]) for L in task_logs), "wm_loss": wl, "imagined_reward_per_step": float(np.mean(imag[-20:]))}
             if it % 5 == 0 or it == args.iterations:
-                ev, _ = evaluate_g(pool, eval_cases, roads, None, args.workers, policy=policy, wm=wm)
+                ev, ev_logs = evaluate_g(pool, eval_cases, roads, None, args.workers, policy=policy, wm=wm)
                 row.update({k: v for k, v in ev.items() if k != "per_episode"})
-                report["final"] = ev
+                report["final"] = {**ev, "failed_traces": failed_traces(ev_logs)}
                 show(f"iteration {it}", ev)
+                if extra_cases:
+                    ex, _ = evaluate_g(pool, extra_cases, roads, None, args.workers, policy=policy, wm=wm)
+                    row["extra"] = {k: v for k, v in ex.items() if k != "per_episode"}
+                    report["final_extra"] = ex
+                    show(f"iteration {it} [extra]", ex)
+                if args.save_dir:
+                    Path(args.save_dir).mkdir(parents=True, exist_ok=True)
+                    torch.save({"policy": policy.state_dict(), "wm": wm.state_dict()}, Path(args.save_dir) / f"it{it}.pt")
             else:
                 log(f"iteration {it}: imagined reward/step {row['imagined_reward_per_step']:.3f}, wm loss {wl:.4f}, task steps {row['task_steps']}")
             report["curve"].append(row)
