@@ -54,3 +54,4 @@ def test_imagination_runs_and_reaches_policy(tmp_path):
         J0 = imagine_g(wm, pol, st, paths, 10, roads)
         assert torch.equal(J0, imagine_g(wm, pol, st, paths, 10, roads, 0.0, 0.0))
         assert (imagine_g(wm, pol, st, paths, 10, roads, 1.0, 50.0) <= J0 + 1e-6).all()
+        assert (imagine_g(wm, pol, st, paths, 10, roads, 0.0, 0.0, 1.0) <= J0 + 1e-6).all()

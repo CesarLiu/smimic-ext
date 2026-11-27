@@ -126,10 +126,11 @@ def kinematic_pose(pose, x):
     return torch.stack([pose[:, 0] + (vx * torch.cos(yaw) - vy * torch.sin(yaw)) * DT, pose[:, 1] + (vx * torch.sin(yaw) + vy * torch.cos(yaw)) * DT, yaw], -1)
 
 
-def imagine_g(wm, policy, starts, paths, H, roads, corridor_w: float = 0.0, fail_pen: float = 0.0):
+def imagine_g(wm, policy, starts, paths, H, roads, corridor_w: float = 0.0, fail_pen: float = 0.0, ltr_w: float = 0.0):
     """Training objective (not the evaluation reward): the task reward, optionally minus a corridor barrier
-    corridor_w x (excess of |lateral error| over 0.4 m / 0.1 m)^2 (the MPC's corridor term) and minus fail_pen x the
-    probability of failing at each step (in Chrono a failure ends the episode, which the 1.5 s horizon undercounts)."""
+    corridor_w x (excess of |lateral error| over 0.4 m / 0.1 m)^2 (the MPC's corridor term), minus fail_pen x the
+    probability of failing at each step (in Chrono a failure ends the episode, which the 1.5 s horizon undercounts),
+    and minus ltr_w x (excess of |LTR| over 0.6 / 0.1)^2 (the MPC's load-transfer limit)."""
     Xh, Ah, pose, s, pid, v_ref, rid = starts
     x, a_prev = Xh[-1], Ah[-1][:, :6]
     c = torch.ones(x.shape[0])
@@ -145,8 +146,8 @@ def imagine_g(wm, policy, starts, paths, H, roads, corridor_w: float = 0.0, fail
         _, _, pyaw, _ = crc.path_at(paths, pid, s)
         s = s + (x1[:, IXG["vx"]] * torch.cos(pose[:, 2] - pyaw) - x1[:, IXG["vy"]] * torch.sin(pose[:, 2] - pyaw)) * DT
         _, e_lat, e_head = crc.features(x1, pose, s, pid, v_ref, a[:, :2], paths, wm)
-        rew, fail, _ = reward_g(x1, a, a_prev, e_lat, e_head, v_ref)
-        rew = rew - corridor_w * (torch.relu(e_lat.abs() - 0.4) / 0.1) ** 2
+        rew, fail, ltr = reward_g(x1, a, a_prev, e_lat, e_head, v_ref)
+        rew = rew - corridor_w * (torch.relu(e_lat.abs() - 0.4) / 0.1) ** 2 - ltr_w * (torch.relu(ltr - 0.6) / 0.1) ** 2
         J = J + c * (rew - fail_pen * fail)
         c = c * (1 - fail)
         x, a_prev = x1, a
@@ -351,6 +352,7 @@ def parse(argv=None):
     ap.add_argument("--baselines-only", action="store_true")
     ap.add_argument("--corridor-weight", type=float, default=0.0, help="training objective: corridor barrier beyond 0.4 m (imagination only)")
     ap.add_argument("--fail-penalty", type=float, default=0.0, help="training objective: penalty per unit failure probability (imagination only)")
+    ap.add_argument("--ltr-weight", type=float, default=0.0, help="training objective: load-transfer barrier beyond 0.6 (imagination only)")
     ap.add_argument("--extra-eval-paths", type=int, default=0, help="a second held-out evaluation set: this many paths x 2 speeds on new roads")
     ap.add_argument("--save-dir", default=None, help="save policy and world model at every evaluation")
     ap.add_argument("--seed", type=int, default=0)
@@ -462,7 +464,7 @@ def main(argv=None) -> int:
             imag = []
             for _ in range(args.policy_updates):
                 st, paths = sample_starts_g(task_logs, args.batch, rng, wm.hist)
-                J = imagine_g(wm, policy, st, paths, args.horizon, roads, args.corridor_weight, args.fail_penalty)
+                J = imagine_g(wm, policy, st, paths, args.horizon, roads, args.corridor_weight, args.fail_penalty, args.ltr_weight)
                 loss = -J.mean() / args.horizon
                 popt.zero_grad()
                 loss.backward()
