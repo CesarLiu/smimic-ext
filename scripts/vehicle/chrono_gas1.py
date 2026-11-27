@@ -355,10 +355,40 @@ def parse(argv=None):
     ap.add_argument("--ltr-weight", type=float, default=0.0, help="training objective: load-transfer barrier beyond 0.6 (imagination only)")
     ap.add_argument("--extra-eval-paths", type=int, default=0, help="a second held-out evaluation set: this many paths x 2 speeds on new roads")
     ap.add_argument("--save-dir", default=None, help="save policy and world model at every evaluation")
+    ap.add_argument("--eval-checkpoint", default=None, help="only evaluate this checkpoint and the two preview baselines on a fresh set")
+    ap.add_argument("--fresh-paths", type=int, default=16, help="paths (x 2 speeds, each on its own new road) of the fresh set")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--python", default=None)
     ap.add_argument("--out", default="logs/chrono_gas1.json")
     return ap.parse_args(argv)
+
+
+def eval_checkpoint(args, pool, geo, ident, log) -> int:
+    """A fresh evaluation set (seed + 4000; roads 7000+), never used during training or selection: the checkpoint's
+    policy against the hierarchical and the SSF + preview-skyhook baselines."""
+    n0 = args.train_roads + args.eval_paths + args.extra_eval_paths
+    roads = Roads([*range(args.train_roads), *range(5000, 5000 + args.eval_paths), *range(6000, 6000 + args.extra_eval_paths),
+                   *range(7000, 7000 + args.fresh_paths)], args.road_dir, geo)
+    rng, cases = np.random.default_rng(args.seed + 4000), []
+    for e in range(args.fresh_paths):
+        p, _ = crc.lane_change_path(rng)
+        cases += [(p, v, n0 + e) for v in crc.EVAL_SPEEDS]
+    ck = torch.load(args.eval_checkpoint)
+    nx = len(STATE_G)
+    wm = LiftWM(nx, 10, [512, 512, 512], np.zeros(nx), np.ones(nx), np.ones(nx), hist=2)
+    wm.load_state_dict(ck["wm"])
+    policy = Policy6(ck["policy"]["net.0.weight"].shape[1])
+    policy.load_state_dict(ck["policy"])
+    rep = {"checkpoint": args.eval_checkpoint, "cases": len(cases)}
+    for name, ctl, kw in (("hierarchical", Hierarchical(RollMPC(ident), roads, True), {}), ("ssf_preview", Hierarchical(None, roads, True), {}),
+                          ("supermimic", None, {"policy": policy, "wm": wm})):
+        ev, _ = evaluate_g(pool, cases, roads, ctl, args.workers, **kw)
+        rep[name] = ev
+        log(f"{name:>13} [fresh]: rolled {ev['rolled']}/{ev['episodes']}, off path {ev['off_path']}, return {ev['mean_return']:.1f}, |lat| {ev['mean_abs_lat']:.3f} m, "
+            f"RMS az {ev['rms_az']:.2f} m/s2, lift {ev['two_wheel_lift_s']:.1f} s, speed {ev['mean_speed']:.1f} m/s")
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(json.dumps(rep, indent=1))
+    return 0
 
 
 def main(argv=None) -> int:
@@ -389,6 +419,8 @@ def main(argv=None) -> int:
             return [{"case": i, "v_ref": L["v_ref"], "end": L["end"], "lat": L["lat"], "vx": [x[0] for x in L["x"]], "steer": [a[0] for a in L["a"]],
                      "ltr": L["ltr"], "tilt": L["tilt"]} for i, L in enumerate(logs) if L["end"] != "completed"]
         ident = identify(args.lift_data)
+        if args.eval_checkpoint:
+            return eval_checkpoint(args, pool, geo, ident, log)
 
         def show(name, ev):
             log(f"{name:>13}: rolled {ev['rolled']}/{ev['episodes']}, off path {ev['off_path']}, return {ev['mean_return']:.1f}, |lat| {ev['mean_abs_lat']:.3f} m, "
