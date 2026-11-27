@@ -55,3 +55,10 @@ def test_imagination_runs_and_reaches_policy(tmp_path):
         assert torch.equal(J0, imagine_g(wm, pol, st, paths, 10, roads, 0.0, 0.0))
         assert (imagine_g(wm, pol, st, paths, 10, roads, 1.0, 50.0) <= J0 + 1e-6).all()
         assert (imagine_g(wm, pol, st, paths, 10, roads, 0.0, 0.0, 1.0) <= J0 + 1e-6).all()
+        # an ensemble of identical members has no disagreement: with the penalty it reproduces the single model
+        import copy
+
+        from chrono_rollover_control import WMEnsemble
+
+        ens = WMEnsemble([wm, copy.deepcopy(wm), copy.deepcopy(wm)])
+        assert torch.allclose(imagine_g(ens, pol, st, paths, 10, roads, unc_penalty=10.0), J0, atol=1e-4)

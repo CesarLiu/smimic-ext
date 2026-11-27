@@ -126,11 +126,12 @@ def kinematic_pose(pose, x):
     return torch.stack([pose[:, 0] + (vx * torch.cos(yaw) - vy * torch.sin(yaw)) * DT, pose[:, 1] + (vx * torch.sin(yaw) + vy * torch.cos(yaw)) * DT, yaw], -1)
 
 
-def imagine_g(wm, policy, starts, paths, H, roads, corridor_w: float = 0.0, fail_pen: float = 0.0, ltr_w: float = 0.0):
+def imagine_g(wm, policy, starts, paths, H, roads, corridor_w: float = 0.0, fail_pen: float = 0.0, ltr_w: float = 0.0, unc_penalty: float = 0.0):
     """Training objective (not the evaluation reward): the task reward, optionally minus a corridor barrier
     corridor_w x (excess of |lateral error| over 0.4 m / 0.1 m)^2 (the MPC's corridor term), minus fail_pen x the
     probability of failing at each step (in Chrono a failure ends the episode, which the 1.5 s horizon undercounts),
-    and minus ltr_w x (excess of |LTR| over 0.6 / 0.1)^2 (the MPC's load-transfer limit)."""
+    and minus ltr_w x (excess of |LTR| over 0.6 / 0.1)^2 (the MPC's load-transfer limit). With a world-model ensemble,
+    unc_penalty x the largest step reward x the members' disagreement is subtracted as well (section 10.6)."""
     Xh, Ah, pose, s, pid, v_ref, rid = starts
     x, a_prev = Xh[-1], Ah[-1][:, :6]
     c = torch.ones(x.shape[0])
@@ -140,14 +141,17 @@ def imagine_g(wm, policy, starts, paths, H, roads, corridor_w: float = 0.0, fail
         a = policy(ob)
         pose1 = kinematic_pose(pose, x)
         u = torch.cat([a, roads.under_wheels(rid, pose1) - roads.under_wheels(rid, pose)], -1)
-        x1 = wm.step_hist(Xh, torch.cat([Ah, u[None]]))
+        if unc_penalty > 0:
+            x1, spread = wm.step_hist_spread(Xh, torch.cat([Ah, u[None]]))
+        else:
+            x1, spread = wm.step_hist(Xh, torch.cat([Ah, u[None]])), 0.0
         Xh, Ah = torch.cat([Xh[1:], x1[None]]), torch.cat([Ah[1:], u[None]])
         pose = kinematic_pose(pose, x1)
         _, _, pyaw, _ = crc.path_at(paths, pid, s)
         s = s + (x1[:, IXG["vx"]] * torch.cos(pose[:, 2] - pyaw) - x1[:, IXG["vy"]] * torch.sin(pose[:, 2] - pyaw)) * DT
         _, e_lat, e_head = crc.features(x1, pose, s, pid, v_ref, a[:, :2], paths, wm)
         rew, fail, ltr = reward_g(x1, a, a_prev, e_lat, e_head, v_ref)
-        rew = rew - corridor_w * (torch.relu(e_lat.abs() - 0.4) / 0.1) ** 2 - ltr_w * (torch.relu(ltr - 0.6) / 0.1) ** 2
+        rew = rew - corridor_w * (torch.relu(e_lat.abs() - 0.4) / 0.1) ** 2 - ltr_w * (torch.relu(ltr - 0.6) / 0.1) ** 2 - unc_penalty * crc.R_MAX * spread
         J = J + c * (rew - fail_pen * fail)
         c = c * (1 - fail)
         x, a_prev = x1, a
@@ -317,6 +321,8 @@ def sample_starts_g(logs, n, rng, hist):
 
 
 def wm_update(wm, opt, eps, k, n, rng):
+    if isinstance(wm, crc.WMEnsemble):  # each member on its own batches, with its own optimiser
+        return float(np.mean([wm_update(m, o, eps, k, n, rng) for m, o in zip(wm.members, opt)]))
     idx = windows(eps, k, wm.hist)
     loss = None
     for _ in range(n):
@@ -355,6 +361,10 @@ def parse(argv=None):
     ap.add_argument("--ltr-weight", type=float, default=0.0, help="training objective: load-transfer barrier beyond 0.6 (imagination only)")
     ap.add_argument("--extra-eval-paths", type=int, default=0, help="a second held-out evaluation set: this many paths x 2 speeds on new roads")
     ap.add_argument("--save-dir", default=None, help="save policy and world model at every evaluation")
+    ap.add_argument("--wm-ensemble", type=int, default=1, help="world-model members; the extra ones are created and pretrained after the behaviour clone")
+    ap.add_argument("--unc-penalty", type=float, default=0.0, help="lambda of the ensemble-disagreement penalty in imagination")
+    ap.add_argument("--high-speed-frac", type=float, default=0.0, help="share of SuperMimic-loop training episodes at 15-18 m/s instead of 10-18")
+    ap.add_argument("--skip-baselines", action="store_true", help="do not re-evaluate the baselines (they do not depend on the SuperMimic options)")
     ap.add_argument("--eval-checkpoint", default=None, help="only evaluate this checkpoint and the two preview baselines on a fresh set")
     ap.add_argument("--fresh-paths", type=int, default=16, help="paths (x 2 speeds, each on its own new road) of the fresh set")
     ap.add_argument("--seed", type=int, default=0)
@@ -375,7 +385,9 @@ def eval_checkpoint(args, pool, geo, ident, log) -> int:
         cases += [(p, v, n0 + e) for v in crc.EVAL_SPEEDS]
     ck = torch.load(args.eval_checkpoint)
     nx = len(STATE_G)
-    wm = LiftWM(nx, 10, [512, 512, 512], np.zeros(nx), np.ones(nx), np.ones(nx), hist=2)
+    k = len({key.split(".")[1] for key in ck["wm"] if key.startswith("members.")})
+    members = [LiftWM(nx, 10, [512, 512, 512], np.zeros(nx), np.ones(nx), np.ones(nx), hist=2) for _ in range(max(k, 1))]
+    wm = crc.WMEnsemble(members) if k else members[0]
     wm.load_state_dict(ck["wm"])
     policy = Policy6(ck["policy"]["net.0.weight"].shape[1])
     policy.load_state_dict(ck["policy"])
@@ -427,7 +439,7 @@ def main(argv=None) -> int:
                 f"RMS az {ev['rms_az']:.2f} m/s2, lift {ev['two_wheel_lift_s']:.1f} s, speed {ev['mean_speed']:.1f} m/s")
 
         base = {}
-        for name, ctl in (("ssf_passive", Hierarchical(None, roads, False)), ("ssf_preview", Hierarchical(None, roads, True)),
+        for name, ctl in () if args.skip_baselines else (("ssf_passive", Hierarchical(None, roads, False)), ("ssf_preview", Hierarchical(None, roads, True)),
                           ("mpc_passive", Hierarchical(RollMPC(ident), roads, False)), ("hierarchical", Hierarchical(RollMPC(ident), roads, True))):
             base[name], _ = evaluate_g(pool, eval_cases, roads, ctl, args.workers)
             show(name, base[name])
@@ -487,16 +499,29 @@ def main(argv=None) -> int:
         show("behaviour clone", ev)
         report["behaviour_clone"] = ev
         report["curve"].append({"iteration": 0, **{k: v for k, v in ev.items() if k != "per_episode"}})
+        if args.wm_ensemble > 1:  # after the behaviour clone, so its start is the same as with one model
+            members = [wm]
+            for m in range(1, args.wm_ensemble):
+                extra = LiftWM(len(STATE_G), 10, [512, 512, 512], X.mean(0), X.std(0) + 1e-6, D.std(0) + 1e-6, hist=2)
+                eopt = torch.optim.Adam(extra.parameters(), lr=1e-3)
+                for g in range(args.wm_pretrain // 500):
+                    loss = wm_update(extra, eopt, rand_eps + to_episodes(task_logs) * 4, 8, 500, rng)
+                log(f"  ensemble member {m}: pretrained, 8-step loss {loss:.4f}")
+                for gr in eopt.param_groups:
+                    gr["lr"] = 3e-4
+                members.append(extra)
+                wopt = [*(wopt if isinstance(wopt, list) else [wopt]), eopt]
+            wm = crc.WMEnsemble(members)
         for it in range(1, args.iterations + 1):
-            cases = [(crc.lane_change_path(train_rng)[0], float(train_rng.uniform(*crc.TRAIN_SPEEDS)), int(train_rng.integers(0, args.train_roads)))
-                     for _ in range(args.episodes_per_iter)]
+            cases = [(crc.lane_change_path(train_rng)[0], float(train_rng.uniform(15.0, 18.0) if args.high_speed_frac > 0 and train_rng.random() < args.high_speed_frac else train_rng.uniform(*crc.TRAIN_SPEEDS)),
+                      int(train_rng.integers(0, args.train_roads))) for _ in range(args.episodes_per_iter)]
             for i in range(0, len(cases), args.workers):
                 task_logs += drive_g(pool, cases[i:i + args.workers], roads, None, policy=policy, wm=wm, noise=0.05, rng=rng)
             wl = wm_update(wm, wopt, rand_eps + to_episodes(task_logs) * 4, 8, args.wm_updates, rng)
             imag = []
             for _ in range(args.policy_updates):
                 st, paths = sample_starts_g(task_logs, args.batch, rng, wm.hist)
-                J = imagine_g(wm, policy, st, paths, args.horizon, roads, args.corridor_weight, args.fail_penalty, args.ltr_weight)
+                J = imagine_g(wm, policy, st, paths, args.horizon, roads, args.corridor_weight, args.fail_penalty, args.ltr_weight, args.unc_penalty)
                 loss = -J.mean() / args.horizon
                 popt.zero_grad()
                 loss.backward()
