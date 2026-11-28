@@ -25,7 +25,7 @@
 | 接触切换 | 两轮离地附近的世界模型与防侧翻控制（Chrono 多体） | ✅ 世界模型学得会两轮离地（梯度余弦 0.94–0.95，翻滚后变差）；SuperMimic 用约 13 万 Chrono 步学出的控制器跟踪比经典限速准 3–5 倍、总回报持平（冲出车道 3/16 对 1/16）；同样预算的 PPO（原始加三组调参）都远不如它；但带侧倾模型的 MPC 全面更好（回报 409、0 失败）。可行性结论见 §11.13 | §11.12、§11.13，第 14 步，`docs/results/vehicle_chrono_lift_check.json`、`vehicle_chrono_rollover_*` |
 | MPC 的弱点 | 找侧倾模型 MPC 做不好的设定 | ⚠️ 紧急避障、离地窗口、实时预算都不是弱点；晃动的车顶载荷是（侧倾模型 R² 0.24，MPC 365 < SSF 限速 384）。但 SuperMimic 没能利用（2 步 / 16 步历史 / 16 步加集成和不确定性惩罚：351 / 377 / 364，仍翻车 1–3 次）；加两个摆状态、用卡尔曼滤波估计摆角的 MPC 回到 389、0 失败（量到摆角为 390） | §11.14，第 14b 步，`docs/results/vehicle_chrono_slosh_*`、`vehicle_chrono_mpc_probes.json` |
 | 全主动底盘 | 工业界的维度（10–14 个快速执行器）是否就是 SuperMimic 需要的复杂度 | ⚠️ 维度够高，但多出来的大多是可写的结构，工业界分层降到 ≤ 6 维；Chrono 上四角 ±7 kN 主动悬架让鱼钩离地时间减半，翻车门槛不变（9–10 m/s）。可能的切入点是计算预算和接触丰富的垂向工况，实验 G-AS1 未做 | §11.15，第 14c 步，`docs/results/vehicle_chrono_active_suspension_check.json` |
-| G-AS1 | 粗糙路面、四角主动悬架、6 维动作，SuperMimic 对工业分层（侧倾模型 MPC + 预瞄天棚） | ❌ 训练目标加 LTR 限制（`--corridor-weight 1 --fail-penalty 50 --ltr-weight 1`）后，回报在三组评估上都最高（402 / 408 / 391 对分层 367 / 385 / 375），但没见过的路面上 17 m/s 冲出 5 / 64 段（分层 0 / 64），关卡不通过。更早：主评估集上打平，第二组留出评估上冲出 6 / 16。跟进运行（克隆 3000 次更新、40 轮）主评估集 368.5 对 367.1，冲出 1 / 16 对 0；横向误差小 32%（0.054 对 0.079 m），车身加速度小 22%（1.15 对 1.48 m/s²）。第一次运行（克隆起点 210、20 轮）为 337、冲出 4。单种子，基线悬架层未按奖励调参 | §11.16，第 14d 步，`docs/results/vehicle_chrono_gas1_*` |
+| G-AS1 | 粗糙路面、四角主动悬架、6 维动作，SuperMimic 对工业分层（侧倾模型 MPC + 预瞄天棚） | ❌ 再加世界模型集成和高速数据：新鲜 32 段回报 445.8、冲出 1（分层 374.9、0），但车速 12.0 对 14.6 m/s；分层降到同速时 443.3、0 失败，即同速下打平、SuperMimic 跟踪准 23%、失败多 1 次。之前：训练目标加 LTR 限制（`--corridor-weight 1 --fail-penalty 50 --ltr-weight 1`）后，回报在三组评估上都最高（402 / 408 / 391 对分层 367 / 385 / 375），但没见过的路面上 17 m/s 冲出 5 / 64 段（分层 0 / 64），关卡不通过。更早：主评估集上打平，第二组留出评估上冲出 6 / 16。跟进运行（克隆 3000 次更新、40 轮）主评估集 368.5 对 367.1，冲出 1 / 16 对 0；横向误差小 32%（0.054 对 0.079 m），车身加速度小 22%（1.15 对 1.48 m/s²）。第一次运行（克隆起点 210、20 轮）为 337、冲出 4。单种子，基线悬架层未按奖励调参 | §11.16，第 14d 步，`docs/results/vehicle_chrono_gas1_*` |
 
 ## 环境
 
@@ -622,8 +622,12 @@ env -u PYTHONPATH uv run python scripts/vehicle/chrono_gas1.py --lift-data logs/
 env -u PYTHONPATH uv run python scripts/vehicle/chrono_gas1.py --lift-data logs/chrono_lift_data.npz --road-dir logs/roads_gas1 --random-cache logs/chrono_gas1_random.npz --bc-updates 3000 --iterations 40 --out logs/chrono_gas1_long.json
 # 降低高速失败：训练目标加走廊、失败惩罚和 LTR 限制，第二组留出评估，保存检查点（约 3.7 小时）
 env -u PYTHONPATH uv run python scripts/vehicle/chrono_gas1.py --lift-data logs/chrono_lift_data.npz --road-dir logs/roads_gas1 --random-cache logs/chrono_gas1_random.npz --bc-updates 3000 --iterations 40 --corridor-weight 1 --fail-penalty 50 --ltr-weight 1 --extra-eval-paths 8 --save-dir logs/gas1_ckpt --out logs/chrono_gas1_ltr.json
-# 最终检查点在新鲜的 32 段上对比两个预瞄基线（约 15 分钟）
+# 再加世界模型集成和高速数据（25 轮，约 3.6 小时；--skip-baselines 不重新评估基线）
+env -u PYTHONPATH uv run python scripts/vehicle/chrono_gas1.py --lift-data logs/chrono_lift_data.npz --road-dir logs/roads_gas1 --random-cache logs/chrono_gas1_random.npz --skip-baselines --bc-updates 3000 --iterations 25 --corridor-weight 1 --fail-penalty 50 --ltr-weight 1 --wm-ensemble 3 --unc-penalty 10 --high-speed-frac 0.5 --extra-eval-paths 8 --save-dir logs/gas1_ckpt_ens --out logs/chrono_gas1_ens.json
+# 最终检查点在新鲜的 32 段上对比两个预瞄基线和降速 0.87 的分层控制器（约 22 分钟；把 it40.pt 换成 it25.pt 即评集成版本）
 env -u PYTHONPATH uv run python scripts/vehicle/chrono_gas1.py --lift-data logs/chrono_lift_data.npz --road-dir logs/roads_gas1 --extra-eval-paths 8 --eval-checkpoint logs/gas1_ckpt/it40.pt --out logs/chrono_gas1_fresh.json
+# 分层控制器降速 0.80 / 0.75（与 SuperMimic 车速对齐；临时脚本，参数是放 lift/data.npz 和 gas1/run/roads 的目录）
+PYTHONPATH=src python scripts/vehicle/mpc_probes/gas1_slow_baselines.py <dir>
 ```
 
 - `--lift-data` 是第 14 步的平地随机激励数据，只用于 MPC 的辨识；
