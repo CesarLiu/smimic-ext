@@ -22,6 +22,7 @@ Controllers:
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import math
 import sys
@@ -118,6 +119,86 @@ class Policy6(nn.Module):
     def forward(self, obs):
         u = torch.tanh(self.net(obs))
         return torch.cat([u[:, :1], crc.A_MIN + (u[:, 1:2] + 1) * 0.5 * (crc.A_MAX - crc.A_MIN), u[:, 2:]], -1)
+
+
+class Critic(nn.Module):
+    """Value of the policy's observation (terrain-grounded imagination recipe: bootstraps the short imagined return)."""
+
+    def __init__(self, n_in):
+        super().__init__()
+        self.net = nn.Sequential(nn.Linear(n_in, 256), nn.ELU(), nn.Linear(256, 256), nn.ELU(), nn.Linear(256, 1))
+
+    def forward(self, obs):
+        return self.net(obs).squeeze(-1)
+
+
+def imagine_ac(wm, policy, critic, starts, paths, H, roads, corridor_w=0.0, ltr_w=0.0, unc_penalty=0.0, gamma=0.99, lam=0.95,
+               event_ltr=0.95):
+    """Actor-critic imagination after leggedrobotics/terrain-grounded-imagination (TGI): the policy objective is the
+    H-step return bootstrapped with the critic,
+
+        G_t = r_t + gamma (1 - d_t) ((1 - l_t) V(s_t+1) + l_t G_t+1),   l_t = 0 at events, else 1,
+
+    differentiable through the world model (the critic's weights frozen by the caller, its input not). Events are
+    imagined steps near two-wheel lift (|LTR| > event_ltr), where the world model's gradient is least reliable: the
+    return stops flowing back through the model there and the critic takes over. d_t is the soft failure probability.
+    Returns G_0 (B,), the critic inputs of steps 0..H-1 and their TD(lambda) targets (detached), and the event share."""
+    Xh, Ah, pose, s, pid, v_ref, rid = starts
+    x, a_prev = Xh[-1], Ah[-1][:, :6]
+    ob, _, _ = features_g(x, pose, s, pid, v_ref, a_prev, paths, wm, roads, rid)
+    O, Rw, Dn, Lt = [ob], [], [], []
+    for _ in range(H):
+        a = policy(ob)
+        pose1 = kinematic_pose(pose, x)
+        u = torch.cat([a, roads.under_wheels(rid, pose1) - roads.under_wheels(rid, pose)], -1)
+        if unc_penalty > 0:
+            x1, spread = wm.step_hist_spread(Xh, torch.cat([Ah, u[None]]))
+        else:
+            x1, spread = wm.step_hist(Xh, torch.cat([Ah, u[None]])), 0.0
+        Xh, Ah = torch.cat([Xh[1:], x1[None]]), torch.cat([Ah[1:], u[None]])
+        pose = kinematic_pose(pose, x1)
+        _, _, pyaw, _ = crc.path_at(paths, pid, s)
+        s = s + (x1[:, IXG["vx"]] * torch.cos(pose[:, 2] - pyaw) - x1[:, IXG["vy"]] * torch.sin(pose[:, 2] - pyaw)) * DT
+        _, e_lat, e_head = crc.features(x1, pose, s, pid, v_ref, a[:, :2], paths, wm)
+        rew, fail, ltr = reward_g(x1, a, a_prev, e_lat, e_head, v_ref)
+        rew = rew - corridor_w * (torch.relu(e_lat.abs() - 0.4) / 0.1) ** 2 - ltr_w * (torch.relu(ltr - 0.6) / 0.1) ** 2 - unc_penalty * crc.R_MAX * spread
+        Rw.append(rew)
+        Dn.append(fail.clamp(0, 1))
+        Lt.append(ltr)
+        x, a_prev = x1, a
+        ob, _, _ = features_g(x, pose, s, pid, v_ref, a_prev, paths, wm, roads, rid)
+        O.append(ob)
+    r, d, Ot = torch.stack(Rw), torch.stack(Dn), torch.stack(O)
+    V = critic(Ot[1:])
+    keep = (torch.stack(Lt) <= event_ltr).float().detach()
+    G = r[-1] + gamma * (1 - d[-1]) * V[-1]
+    for t in range(H - 2, -1, -1):
+        G = r[t] + gamma * (1 - d[t]) * ((1 - keep[t]) * V[t] + keep[t] * G)
+    with torch.no_grad():
+        Vd = critic(Ot)
+        Rt, targets = Vd[-1], []
+        for t in range(H - 1, -1, -1):
+            Rt = r[t] + gamma * (1 - d[t]) * ((1 - lam) * Vd[t + 1] + lam * Rt)
+            targets.append(Rt)
+        targets = torch.stack(targets[::-1])
+    return G, Ot[:-1].detach(), targets.detach(), float(1 - keep.mean())
+
+
+def train_critic(critic, copt, X, Y, epochs=5, minibatches=4):
+    X, Y = X.reshape(-1, X.shape[-1]), Y.reshape(-1)
+    n = X.shape[0]
+    mb = n // minibatches
+    loss = torch.zeros(())
+    for _ in range(epochs):
+        perm = torch.randperm(n)
+        for i in range(minibatches):
+            idx = perm[i * mb:(i + 1) * mb]
+            loss = ((critic(X[idx]) - Y[idx]) ** 2).mean()
+            copt.zero_grad()
+            loss.backward()
+            nn.utils.clip_grad_norm_(critic.parameters(), 1.0)
+            copt.step()
+    return float(loss.detach())
 
 
 def kinematic_pose(pose, x):
@@ -366,6 +447,12 @@ def parse(argv=None):
     ap.add_argument("--unc-penalty", type=float, default=0.0, help="lambda of the ensemble-disagreement penalty in imagination")
     ap.add_argument("--high-speed-frac", type=float, default=0.0, help="share of SuperMimic-loop training episodes at 15-18 m/s instead of 10-18")
     ap.add_argument("--skip-baselines", action="store_true", help="do not re-evaluate the baselines (they do not depend on the SuperMimic options)")
+    ap.add_argument("--critic", action="store_true", help="actor-critic imagination with gradient cuts near wheel lift (imagine_ac, after TGI)")
+    ap.add_argument("--gamma", type=float, default=0.99)
+    ap.add_argument("--lam", type=float, default=0.95, help="lambda of the critic targets")
+    ap.add_argument("--event-ltr", type=float, default=0.95, help="cut the model gradient at imagined steps with |LTR| above this")
+    ap.add_argument("--critic-warmup", type=int, default=50, help="critic-only updates on imagined rollouts of the starting policy")
+    ap.add_argument("--pi-ema", type=float, default=0.0, help="evaluate and save an exponential moving average of the policy (0: off)")
     ap.add_argument("--eval-checkpoint", default=None, help="only evaluate this checkpoint and the two preview baselines on a fresh set")
     ap.add_argument("--fresh-paths", type=int, default=16, help="paths (x 2 speeds, each on its own new road) of the fresh set")
     ap.add_argument("--slow-scale", type=float, default=0.87, help="fresh set: also the hierarchical baseline at this share of the reference speed")
@@ -515,36 +602,67 @@ def main(argv=None) -> int:
                 members.append(extra)
                 wopt = [*(wopt if isinstance(wopt, list) else [wopt]), eopt]
             wm = crc.WMEnsemble(members)
+        pol_eval = policy
+        if args.pi_ema > 0:
+            pol_eval = copy.deepcopy(policy).requires_grad_(False)
+        critic = copt = None
+        if args.critic:
+            st, paths = sample_starts_g(task_logs, 2, rng, wm.hist)
+            critic = Critic(features_g(st[0][-1], st[2], st[3], st[4], st[5], st[1][-1][:, :6], paths, wm, roads, st[6])[0].shape[-1])
+            copt = torch.optim.Adam(critic.parameters(), lr=3e-4)
+            for _ in range(args.critic_warmup):  # fit the critic to the starting policy before it steers the policy
+                st, paths = sample_starts_g(task_logs, args.batch, rng, wm.hist)
+                with torch.no_grad():
+                    _, Xc, Yc, _ = imagine_ac(wm, policy, critic, st, paths, args.horizon, roads, args.corridor_weight, args.ltr_weight,
+                                              args.unc_penalty, args.gamma, args.lam, args.event_ltr)
+                vl = train_critic(critic, copt, Xc, Yc)
+            log(f"  critic warm-up: {args.critic_warmup} updates, value loss {vl:.3f}")
         for it in range(1, args.iterations + 1):
             cases = [(crc.lane_change_path(train_rng)[0], float(train_rng.uniform(15.0, 18.0) if args.high_speed_frac > 0 and train_rng.random() < args.high_speed_frac else train_rng.uniform(*crc.TRAIN_SPEEDS)),
                       int(train_rng.integers(0, args.train_roads))) for _ in range(args.episodes_per_iter)]
             for i in range(0, len(cases), args.workers):
                 task_logs += drive_g(pool, cases[i:i + args.workers], roads, None, policy=policy, wm=wm, noise=0.05, rng=rng)
             wl = wm_update(wm, wopt, rand_eps + to_episodes(task_logs) * 4, 8, args.wm_updates, rng)
-            imag = []
+            imag, cuts, vls = [], [], []
             for _ in range(args.policy_updates):
                 st, paths = sample_starts_g(task_logs, args.batch, rng, wm.hist)
-                J = imagine_g(wm, policy, st, paths, args.horizon, roads, args.corridor_weight, args.fail_penalty, args.ltr_weight, args.unc_penalty)
+                if critic is not None:
+                    critic.requires_grad_(False)
+                    J, Xc, Yc, cut = imagine_ac(wm, policy, critic, st, paths, args.horizon, roads, args.corridor_weight, args.ltr_weight,
+                                                args.unc_penalty, args.gamma, args.lam, args.event_ltr)
+                    critic.requires_grad_(True)
+                    cuts.append(cut)
+                else:
+                    J = imagine_g(wm, policy, st, paths, args.horizon, roads, args.corridor_weight, args.fail_penalty, args.ltr_weight, args.unc_penalty)
                 loss = -J.mean() / args.horizon
                 popt.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
                 popt.step()
+                if args.pi_ema > 0:
+                    with torch.no_grad():
+                        for pe, pp in zip(pol_eval.parameters(), policy.parameters()):
+                            pe.lerp_(pp, 1.0 - args.pi_ema)
+                if critic is not None:
+                    vls.append(train_critic(critic, copt, Xc, Yc))
                 imag.append(float(J.mean()) / args.horizon)
             row = {"iteration": it, "task_steps": sum(len(L["a"]) for L in task_logs), "wm_loss": wl, "imagined_reward_per_step": float(np.mean(imag[-20:]))}
+            if critic is not None:
+                row.update({"event_share": float(np.mean(cuts)), "value_loss": float(np.mean(vls[-20:]))})
             if it % 5 == 0 or it == args.iterations:
-                ev, ev_logs = evaluate_g(pool, eval_cases, roads, None, args.workers, policy=policy, wm=wm)
+                ev, ev_logs = evaluate_g(pool, eval_cases, roads, None, args.workers, policy=pol_eval, wm=wm)
                 row.update({k: v for k, v in ev.items() if k != "per_episode"})
                 report["final"] = {**ev, "failed_traces": failed_traces(ev_logs)}
                 show(f"iteration {it}", ev)
                 if extra_cases:
-                    ex, _ = evaluate_g(pool, extra_cases, roads, None, args.workers, policy=policy, wm=wm)
+                    ex, _ = evaluate_g(pool, extra_cases, roads, None, args.workers, policy=pol_eval, wm=wm)
                     row["extra"] = {k: v for k, v in ex.items() if k != "per_episode"}
                     report["final_extra"] = ex
                     show(f"iteration {it} [extra]", ex)
                 if args.save_dir:
                     Path(args.save_dir).mkdir(parents=True, exist_ok=True)
-                    torch.save({"policy": policy.state_dict(), "wm": wm.state_dict()}, Path(args.save_dir) / f"it{it}.pt")
+                    torch.save({"policy": pol_eval.state_dict(), "policy_raw": policy.state_dict(), "wm": wm.state_dict(),
+                                **({"critic": critic.state_dict()} if critic is not None else {})}, Path(args.save_dir) / f"it{it}.pt")
             else:
                 log(f"iteration {it}: imagined reward/step {row['imagined_reward_per_step']:.3f}, wm loss {wl:.4f}, task steps {row['task_steps']}")
             report["curve"].append(row)
